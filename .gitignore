@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+data/*.tmp
+data/*.tmp-*
+.source-cache/
+.pytest_cache/
+.pytest-tmp/

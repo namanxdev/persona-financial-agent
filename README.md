@@ -319,10 +319,26 @@ stale or missing ones.
 
 ## LLM provider
 
-**OpenAI**, via the `openai` package. Required key: `OPENAI_API_KEY` (see `.env.example`). If it
-is unset, a deterministic fallback composer runs instead of calling a model -- the app, the API,
-and `evals/run_evals.py` are all runnable with no key configured, at the cost of the fallback's
-more mechanical prose compared to an LLM-generated answer.
+**OpenAI**, via the `openai` package, model `gpt-4o-mini` (override with `OPENAI_MODEL`).
+Required key: `OPENAI_API_KEY`. Put it in `.env` -- `agent/config.py` loads that file into the
+environment on import, and a real exported environment variable takes precedence over the file.
+`.env` is gitignored; `.env.example` shows the shape.
+
+The model's role is deliberately narrow. It picks a single non-factual stance token
+(`constructive` / `cautious` / `mixed`) that selects which canned opening sentence frames the
+answer. It never sees evidence values and cannot emit a number: every figure in a reply is
+substituted from `EvidenceItem` rows by `agent/grounding.py`. That is what makes the grounding
+guarantee hold regardless of what the model returns.
+
+With no key set, or on any provider error, `choose_framing` falls back to a deterministic rule
+over the retrieved metric values, so the app, the API, and the evals all run with no network
+access. `FramingChoice.mode` records which path ran (`llm` or `deterministic_fallback`) and is
+logged per request.
+
+Both paths were exercised on 2026-09-07: the deterministic fallback across the full suite and
+eval run with no key set, and the live OpenAI path with a key configured
+(`framing chosen via OpenAI (gpt-4o-mini): cautious`), with 37 tests and 8/8 evals passing in
+both configurations.
 
 ## Eval results
 

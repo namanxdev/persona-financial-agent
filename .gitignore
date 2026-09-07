@@ -14,3 +14,12 @@ data/*.tmp-*
 .source-cache/
 .pytest_cache/
 .pytest-tmp/
+
+# Internal planning and personal notes. Kept local, deliberately unpublished.
+ASSIGNMENT.md
+DECISIONS.md
+AGENTS.md
+CONTRACTS.md
+IMPLEMENTATION_PLAN.md
+REVIEW_CHECKLIST.md
+STAGE1_STATUS.md

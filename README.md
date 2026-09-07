@@ -318,16 +318,49 @@ more mechanical prose compared to an LLM-generated answer.
 
 ## Eval results
 
-<!-- EVAL_RESULTS: replaced by reviewer from a real run -->
+Run on 2026-09-07 against the committed database, over a real stdio MCP subprocess, with no
+`OPENAI_API_KEY` set (so the deterministic fallback composer produced every answer):
 
-**Pending a real run of `python evals/run_evals.py` against the live agent** (`agent/core.py`,
-`agent/personas.py`, and `mcp_server/server.py` are owned by a parallel implementation and were
-not complete while this README was written). The reviewer should run the command below and paste
-the unedited pass/fail table here, including any failures:
-
-```bash
-uv run python evals/run_evals.py
 ```
+$ uv run python evals/run_evals.py
+
+CASE                               RESULT  DETAIL
+divergence_tech_investment_case    PASS    sequences_differ=True sets_differ=True all_have_evidence=True
+divergence_retail_attractive_case  PASS    sequences_differ=True sets_differ=True all_have_evidence=True
+divergence_logistics_outlook_case  PASS    sequences_differ=True sets_differ=True all_have_evidence=True
+grounding_ups_headcount            PASS    expected UPS.headcount=460000.0, got 460000.0
+grounding_msft_operating_margin    PASS    expected MSFT.operating_margin_ttm=0.45111, got 0.45111
+grounding_cost_revenue_growth      PASS    expected COST.revenue_growth_yoy=0.215, got 0.215
+refusal_unknown_ticker_style       PASS    confidence=low evidence=[] answer="I don't have 'RIVN' in
+                                           the logistics sector dataset, so I can't answer about it"
+refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I don't have 'Snowflake'
+                                           in the tech sector dataset, so I can't answer about it"
+
+8/8 cases passed
+```
+
+Test suite alongside it: `python -m pytest -q` -> **34 passed**.
+
+The divergence cases ask one identical question per sector and run it through all three personas,
+asserting the tool sequences and the surfaced company sets both differ. The retrieval those three
+cases actually produced for tech:
+
+| Persona | Tool sequence | Companies surfaced |
+| --- | --- | --- |
+| Mutual fund | `list_companies`, `run_sector_screen`, 6x `get_financials`, 2x `get_hiring_signals` | AAPL, CSCO, GOOGL, META, MSFT, ORCL |
+| Equity | `list_companies`, `run_sector_screen`, 6x `get_financials`, `run_sector_screen` | AAPL, ADBE, GOOGL, IBM, META, MSFT, ORCL |
+| PE | `list_companies`, 8x `get_financials`, `run_sector_screen`, 3x `get_hiring_signals` | all 8 tech tickers |
+
+The grounding expectations are read out of the database at eval time by a direct `sqlite3` query
+in `evals/cases.py`, which is a different code path from the agent's MCP retrieval. The assertion
+is therefore that two independent paths agree, not that the agent agrees with itself.
+
+**Honest caveat on the divergence assertion.** The PE persona pulls `get_financials` across the
+whole sector before screening, so it surfaces all 8 tickers by construction. That makes
+"PE's set differs from the other two" structurally true rather than data-driven. The
+mutual-fund-vs-equity difference is the genuinely metric-driven one (CSCO against ADBE/IBM in
+tech, on different screens). A stronger eval would assert that the mutual fund and equity sets
+differ specifically, and would verify divergence survives a change in the underlying values.
 
 ## What's covered by the data
 

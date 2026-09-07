@@ -45,6 +45,10 @@ _ACRONYM_STOPWORDS = {
     "EBITDA", "ROI", "YOY", "TTM", "CEO", "CFO", "GDP", "SEC", "IPO", "ESG",
     "EPS", "FCF", "USD", "GAAP", "LBO", "KPI", "MF", "PE",
 }
+# Aliases that are also ordinary finance vocabulary. A mention of one of these
+# only counts as a company reference when it is capitalised as a proper noun.
+_CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple"})
+
 _PROPER_NOUN_RE = re.compile(r"[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+){0,2}")
 _TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
 
@@ -65,6 +69,32 @@ def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
     return index
 
 
+def _alias_mentioned(alias: str, query: str, query_lower: str) -> bool:
+    """Whether `alias` appears in `query` as an actual company mention.
+
+    Two distinct false-positive classes have to be excluded, and they need
+    different treatment:
+
+    1. Substring collisions -- "expose the cost" contains "xpo", "metadata"
+       contains "meta". Lookarounds for a non-word neighbour kill these.
+    2. Whole-word collisions -- "the target market", "the low cost operator".
+       Here the alias really is a standalone word, so boundaries do not help.
+       Company names are proper nouns, so for the aliases that double as
+       ordinary finance vocabulary we additionally require the writer to have
+       capitalised it. "What about Target?" resolves; "the target market" does
+       not. Unambiguous aliases ("costco", "walmart") stay case-insensitive so
+       a lowercase query still works.
+    """
+    if alias in _CASE_SENSITIVE_ALIASES:
+        # Look for the proper-noun spelling in the untouched query: "Target",
+        # "Best Buy", "META". The lowercase form is ordinary vocabulary.
+        return any(
+            re.search(rf"(?<!\w){re.escape(variant)}(?!\w)", query)
+            for variant in (alias.title(), alias.upper())
+        )
+    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", query_lower) is not None
+
+
 def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
     by_ticker = {company.ticker: company for company in catalog}
     alias_index = _alias_index(catalog)
@@ -72,7 +102,7 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
     result = ScopeResult()
 
     for alias, ticker in alias_index.items():
-        if len(alias) >= 2 and alias in query_lower:
+        if len(alias) >= 2 and _alias_mentioned(alias, query, query_lower):
             result.matched[ticker] = by_ticker[ticker]
 
     words = query.split()

@@ -266,6 +266,14 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
   replays immutable cached responses specifically so a rebuild is repeatable even if live Yahoo
   output shifts.
 
+- **Company-name resolution is a heuristic, not an NER model.** Six aliases double as ordinary
+  finance vocabulary (`target`, `meta`, `low`, `cost`, `best buy`, `apple`), so those are matched
+  only when capitalised as proper nouns: "What about Target?" resolves to TGT, while "the target
+  market" stays a sector-wide query. Every other alias matches case-insensitively but only on
+  whole-word boundaries, so "expose the cost" no longer resolves to XPO. The residual gap is a
+  sentence-initial ambiguous alias ("Low margins are a concern") which will still read as a
+  company mention.
+
 ## MCP design
 
 The agent reaches data through exactly four fixed, typed tools --

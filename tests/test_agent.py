@@ -130,3 +130,49 @@ def test_scope_resolution_matches_alias_and_ticker_case_insensitively() -> None:
     result = resolve_mentions("tell me about fedex", catalog)
     assert "FDX" in result.matched
     assert result.unmatched == []
+
+
+def _retail_catalog() -> list["CompanyRow"]:
+    from agent.models import CompanyRow
+
+    names = {"TGT": "Target Corporation", "BBY": "Best Buy Co., Inc.",
+             "LOW": "Lowe's Companies, Inc.", "COST": "Costco Wholesale Corporation"}
+    return [
+        CompanyRow(ticker=ticker, name=name, sector="retail",
+                   as_of_date=date.today(), source_url="https://example.com")
+        for ticker, name in names.items()
+    ]
+
+
+def test_ordinary_vocabulary_is_not_a_company_mention() -> None:
+    """Aliases that double as finance vocabulary must not hijack a sector query.
+
+    Substring matching used to resolve "the target market" to TGT and "the low
+    cost operator" to both LOW and COST, silently switching the whole request
+    from sector-wide screening into single-company focus.
+    """
+    for query in (
+        "What is the target market for these retailers?",
+        "Which is the low cost operator?",
+        "The best buy here is unclear",
+    ):
+        assert resolve_mentions(query, _retail_catalog()).matched == {}, query
+
+
+def test_proper_noun_spelling_still_resolves_those_companies() -> None:
+    """The ambiguity rule must not cost us real mentions."""
+    catalog = _retail_catalog()
+    assert "TGT" in resolve_mentions("What about Target?", catalog).matched
+    assert "BBY" in resolve_mentions("How is Best Buy doing?", catalog).matched
+    # Unambiguous aliases stay case-insensitive, so lowercase queries still work.
+    assert "COST" in resolve_mentions("tell me about costco", catalog).matched
+
+
+def test_substring_collision_is_not_a_company_mention() -> None:
+    """"expose" contains "xpo"; word-boundary matching must reject it."""
+    from agent.models import CompanyRow
+
+    catalog = [CompanyRow(ticker="XPO", name="XPO, Inc.", sector="logistics",
+                          as_of_date=date.today(), source_url="https://example.com")]
+    assert resolve_mentions("Let me expose the real cost here", catalog).matched == {}
+    assert "XPO" in resolve_mentions("How is XPO doing?", catalog).matched

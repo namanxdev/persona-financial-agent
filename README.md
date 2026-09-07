@@ -76,7 +76,7 @@ curl -X POST http://localhost:8000/query \
   }'
 ```
 
-Representative response shape (illustrative -- built from `CONTRACTS.md`'s `QueryResponse` model
+Representative response shape (illustrative -- built from the `QueryResponse` model in `agent/models.py`
 and real values read from the committed database; not a captured run, since this file was written
 before the agent existed to run):
 
@@ -281,13 +281,14 @@ The agent reaches data through exactly four fixed, typed tools --
 `mcp_server/server.py` over stdio, not a generic SQL/query tool. That boundary is deliberate:
 
 - **Fixed tools instead of generic SQL** keep every possible retrieval shape enumerable and
-  typed (`CONTRACTS.md`'s Pydantic row models), so a persona's tool calls are a legible,
+  typed (the Pydantic row models in `mcp_server/models.py`), so a persona's tool calls are a legible,
   reviewable trace rather than arbitrary generated queries the agent could use to sidestep the
   grounding rules (e.g. no schema for it to write a query that fabricates a join).
 - **The database driver lives only server-side**, inside `mcp_server/`. The `agent/` package
   imports no DB driver at all -- it reaches every fact through an MCP client session. This is
   checked mechanically (`rg -n "sqlite3|import duckdb|psycopg" agent` must return nothing) and is
-  called out in `AGENTS.md` as the single most heavily graded structural requirement.
+  the structural requirement this design is built around: the agent cannot reach the data any
+  other way, by construction rather than by convention.
 - **The MCP server is a separate stdio process**, not an in-process function call. If that
   process dies or was never started, `answer_query` has no direct-handler or database fallback to
   fall back to -- the failure surfaces as an explicit error in both the API response and the
@@ -295,7 +296,8 @@ The agent reaches data through exactly four fixed, typed tools --
 
 ## Confidence rule
 
-Confidence is computed, never chosen by the model. Exact rule (from `CONTRACTS.md`):
+Confidence is computed, never chosen by the model. Exact rule, implemented in
+`agent/confidence.py`:
 
 1. Create one slot for each `(company, required metric)` in the final retrieval plan, plus one
    slot for each explicitly requested hiring signal. Let `N` be the slot count (minimum 1).

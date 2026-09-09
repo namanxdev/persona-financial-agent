@@ -17,11 +17,21 @@ own copies instead, only this import block should need to change.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 
 import streamlit as st
 
-from agent.core import answer_query
-from agent.models import (
+# `streamlit run ui/app.py` puts only ui/ on sys.path (streamlit.web.bootstrap._fix_sys_path),
+# and this project is never installed into the environment, so the repo root has to be added
+# here -- the same bootstrap scripts/build_db.py and evals/run_evals.py already use. pytest
+# (`python -m`) and uvicorn (--app-dir defaults to ".") each get it for free; Streamlit does not.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent.core import answer_query  # noqa: E402 (path setup must run first)
+from agent.models import (  # noqa: E402
     Confidence,
     EvidenceItem,
     PersonaName,

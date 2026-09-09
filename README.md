@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/namanxdev/persona-financial-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/namanxdev/persona-financial-agent/actions/workflows/ci.yml)
 
+**[Walkthrough video](https://drive.google.com/file/d/1xqgQTz254aHZLeWcaSkYPmbcvVRR-cFV/view?usp=drive_link)**
+-- architecture, persona divergence, grounding, and the hallucination stress test in under four
+minutes.
+
 A single, persona-configurable financial research agent that answers questions about 24
 US-listed companies across three sectors (tech, retail, logistics), grounded live in a SQLite
 database it reaches only through an MCP tool boundary. The same agent function is exposed two
@@ -233,6 +237,12 @@ database, and nothing at query time that needs network access.
 3. Add `OPENAI_API_KEY` under the app's **Secrets** to get the synthesis path live. Without it
    the deployment runs the deterministic composer and still works end to end -- which also makes
    a keyless deploy a reasonable choice if you would rather not put a key on a hosted app.
+
+If the **Deploy** button inside a locally running app says the code "is not connected to a remote
+GitHub repository", that is the local server's own git check, not Streamlit Cloud: it reads the
+repo when the browser asks, and reports nothing usable if the current branch has no upstream or
+has unpushed commits. Push the branch and restart the local server, or skip the button and create
+the app from share.streamlit.io, which only looks at GitHub.
 
 **The thing to watch.** Every request spawns `python -m mcp_server.server` as a real subprocess.
 That is the property this project exists to demonstrate, not an implementation detail, so it

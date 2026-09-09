@@ -16,6 +16,8 @@ data/*.tmp-*
 .pytest-tmp/
 
 # Internal planning and personal notes. Kept local, deliberately unpublished.
+temp.txt
+VIDEO_SCRIPT.md
 ASSIGNMENT.md
 DECISIONS.md
 AGENTS.md

@@ -12,7 +12,8 @@ fails it is discarded and the deterministic composer writes the answer instead.
 import re
 
 from agent.format import format_value, metric_label
-from agent.models import EvidenceItem, Synthesis
+from agent.models import CompanyRow, EvidenceItem, Synthesis
+from agent.scope import ACRONYM_STOPWORDS, resolve_mentions
 
 _MAX_CHARS = 400
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
@@ -20,15 +21,6 @@ _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 # letter runs, so the allowlist below never has to enumerate punctuation variants.
 _UPPERCASE = re.compile(r"\b[A-Z]{2,5}\b")
 
-# Uppercase tokens that are ordinary financial vocabulary rather than a ticker.
-# Anything uppercase and *not* listed here has to be a company the evidence cites.
-_NOT_A_TICKER = frozenset({
-    "US", "USA", "USD", "FY", "TTM", "YOY", "QOQ", "YTD", "EPS", "EV", "EBIT",
-    "EBITA", "FCF", "PE", "PS", "ROIC", "ROE", "ROA", "WACC", "DCF", "CEO", "CFO",
-    "COO", "CAPEX", "OPEX", "COGS", "SGA", "SEC", "GAAP", "LBO", "IRR", "NAV",
-    "IPO", "KPI", "TAM", "ESG", "GDP", "CPI", "AI", "OK", "AND", "THE", "BUT",
-    "NOT", "ALL", "NEW", "FOR", "PER", "VS", "IN", "ON", "AT", "TO", "OF", "IS",
-})
 
 
 def evidence_payload(evidence: list[EvidenceItem]) -> list[dict[str, str]]:
@@ -97,7 +89,39 @@ def _ungrounded(candidate: Synthesis, evidence: list[EvidenceItem], tickers: set
     return found
 
 
-def validate(candidate: Synthesis, evidence: list[EvidenceItem]) -> str | None:
+def out_of_scope_mentions(candidate: Synthesis, catalog: list[CompanyRow]) -> list[str]:
+    """Company names in the draft that this sector's catalog does not contain.
+
+    Checking uppercase tickers against the evidence is not enough: a model handed
+    the user's question will happily write about "Snowflake" in proper-noun form,
+    which is not ticker-shaped and so passes every numeric check while the answer
+    is *about* a company holding no data. This runs the same resolver a query
+    goes through, so a name the agent would refuse to answer about cannot appear
+    in an answer either.
+
+    Sentence by sentence, because that resolver ignores a sentence-initial capital
+    -- otherwise every bullet starting "Market volatility..." would read as a
+    company. That leaves one gap by design: a draft whose *only* mention of an
+    uncovered company opens a sentence is not caught. Closing it needs a
+    dictionary of ordinary words, and the version that tried refused a real
+    question about "the margin and valuation picture" because the answer happened
+    to open a bullet with "Valuation". A missed mention costs a plainer answer; a
+    false one costs a refusal of a question the data can actually answer.
+    """
+    found: list[str] = []
+    for chunk in _chunks(candidate):
+        for sentence in _sentences(chunk):
+            for name in resolve_mentions(sentence, catalog).unmatched:
+                if name not in found:
+                    found.append(name)
+    return found
+
+
+def validate(
+    candidate: Synthesis,
+    evidence: list[EvidenceItem],
+    catalog: list[CompanyRow] | None = None,
+) -> str | None:
     """Return a rejection reason, or None if the candidate may be shown."""
     if not candidate.thesis.strip() or not candidate.supporting_points:
         return "empty thesis or no supporting points"
@@ -120,10 +144,15 @@ def validate(candidate: Synthesis, evidence: list[EvidenceItem]) -> str | None:
     invented = {
         token
         for token in _UPPERCASE.findall(prose)
-        if token not in _NOT_A_TICKER and token not in tickers
+        if token not in ACRONYM_STOPWORDS and token not in tickers
     }
     if invented:
         return f"names companies outside the retrieved evidence: {sorted(invented)}"
+
+    if catalog is not None:
+        outside = out_of_scope_mentions(candidate, catalog)
+        if outside:
+            return f"names companies outside the sector catalog: {outside}"
 
     ungrounded = _ungrounded(candidate, evidence, tickers)
     if ungrounded:

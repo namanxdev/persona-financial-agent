@@ -176,3 +176,14 @@ def test_substring_collision_is_not_a_company_mention() -> None:
                           as_of_date=date.today(), source_url="https://example.com")]
     assert resolve_mentions("Let me expose the real cost here", catalog).matched == {}
     assert "XPO" in resolve_mentions("How is XPO doing?", catalog).matched
+
+
+def test_acronyms_in_a_question_are_not_out_of_scope_companies() -> None:
+    """"What is the EV/EBITDA?" must not read as a company called EV and refuse."""
+    from agent.models import CompanyRow
+
+    catalog = [CompanyRow(ticker="MSFT", name="Microsoft Corporation", sector="tech",
+                          as_of_date=date.today(), source_url="https://example.com")]
+    for query in ("What is the EV/EBITDA for MSFT?", "Show me the TTM operating margin",
+                  "Which of these has the best FCF and ROIC?"):
+        assert resolve_mentions(query, catalog).unmatched == [], query

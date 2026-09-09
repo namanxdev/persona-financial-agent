@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (53 tests, ~23s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (61 tests, ~24s, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -90,10 +90,19 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
   supporting_points, risks, limitations, evidence_ids. `evidence_guard.validate` then rejects
   unretrieved evidence ids, tickers never retrieved, numbers absent from the display strings
   (invented *or* computed), and figures attached to the wrong company in a single-company
-  sentence. Rejection falls back to `grounding.py`. The guarantee is the validator, not the
-  prompt -- if you weaken `validate`, you have weakened the whole design, so change it only
-  alongside a test in `tests/test_synthesis.py`. `AGENT_SYNTHESIS=off` forces the deterministic
-  path; `tests/conftest.py` sets it so the suite never calls a provider.
+  sentence, and any company name absent from the sector catalog. Rejection falls back to
+  `grounding.py`. The guarantee is the validator, not the prompt -- if you weaken `validate`, you
+  have weakened the whole design, so change it only alongside a test in `tests/test_synthesis.py`.
+  `AGENT_SYNTHESIS=off` forces the deterministic path; `tests/conftest.py` sets it so the suite
+  never calls a provider.
+- `agent/scope.py` owns `ACRONYM_STOPWORDS`, the one list of uppercase tokens that are vocabulary
+  rather than tickers. `evidence_guard` imports it; do not start a second copy, because two copies
+  drifted apart once and let `EV/EBITDA` read as a company on one side of the boundary only.
+- A lowercase mention of a company outside the dataset ("what about snowflake?") is invisible to
+  `scope.py` by construction. It is caught after retrieval instead: if the model's draft names a
+  company the catalog lacks *and* the question named it too, `core._query_named_out_of_scope`
+  turns the turn into the standard refusal. Only the name comes from the discarded draft, and only
+  after the catalog rejected it -- the reply is still a template.
 - `agent/confidence.py` builds one `Slot` per (company, required metric) plus one per requested
   hiring signal, then scores `0.65*coverage + 0.35*freshness`. **High** additionally requires every
   required slot fresh within 180 days. Future dates score 0, not fresh. The rule is documented in

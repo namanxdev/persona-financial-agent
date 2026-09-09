@@ -43,7 +43,7 @@ uv run python evals/run_evals.py
 Expected, verified:
 
 ```
-53 passed, 2 warnings in 22.71s
+61 passed, 2 warnings in 23.94s
 ```
 
 ```
@@ -147,6 +147,10 @@ Questions worth trying:
   persona, same sector. The tool trace should differ each time.
 - `What is the most recent headcount or hiring signal you have for FedEx?`
 - `How is Snowflake doing?` (tech) -- should refuse outright.
+- `what do you think about snowflake?` (tech, all lowercase) -- should also refuse. This one
+  reaches retrieval first and is refused after the model's draft names a company the catalog
+  does not have; with no `OPENAI_API_KEY` set it returns a sector answer instead, which never
+  mentions Snowflake.
 - `What about Target?` (retail) -- should resolve to TGT.
 - `The target market for these companies is shrinking -- thoughts?` (retail) -- should *not*
   resolve to TGT; it stays a sector-wide query. That distinction is the case-sensitivity rule in

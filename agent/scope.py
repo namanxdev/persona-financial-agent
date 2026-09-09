@@ -41,10 +41,18 @@ _DOMAIN_STOPWORDS = {
     "tech", "retail", "logistics", "mutual", "fund", "analyst", "equity", "pe",
     "sector", "companies", "company",
 }
-_ACRONYM_STOPWORDS = {
-    "EBITDA", "ROI", "YOY", "TTM", "CEO", "CFO", "GDP", "SEC", "IPO", "ESG",
-    "EPS", "FCF", "USD", "GAAP", "LBO", "KPI", "MF", "PE",
-}
+# Uppercase tokens that are financial vocabulary rather than a ticker. Shared with
+# agent/evidence_guard.py, which asks the same question of generated prose: two
+# copies of this list drifted apart once already and let "EV/EBITDA" read as a
+# company on one side of the boundary but not the other.
+ACRONYM_STOPWORDS = frozenset({
+    "EBITDA", "EBIT", "EBITA", "ROI", "ROIC", "ROE", "ROA", "YOY", "QOQ", "YTD",
+    "TTM", "FY", "CEO", "CFO", "COO", "GDP", "CPI", "SEC", "IPO", "ESG", "EPS",
+    "EV", "FCF", "PS", "USD", "USA", "US", "GAAP", "LBO", "IRR", "NAV", "KPI",
+    "MF", "PE", "WACC", "DCF", "TAM", "CAPEX", "OPEX", "COGS", "SGA", "AI",
+    "OK", "AND", "THE", "BUT", "NOT", "ALL", "NEW", "FOR", "PER", "VS", "IN",
+    "ON", "AT", "TO", "OF", "IS",
+})
 # Aliases that are also ordinary finance vocabulary. A mention of one of these
 # only counts as a company reference when it is capitalised as a proper noun.
 _CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple"})
@@ -57,6 +65,11 @@ _TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
 class ScopeResult:
     matched: dict[str, CompanyRow] = field(default_factory=dict)
     unmatched: list[str] = field(default_factory=list)
+
+
+def _strip_possessive(phrase: str) -> str:
+    """"Snowflake's" and "Snowflake" are one mention, not two."""
+    return phrase[:-2] if phrase.endswith("'s") else phrase
 
 
 def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
@@ -105,20 +118,27 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
         if len(alias) >= 2 and _alias_mentioned(alias, query, query_lower):
             result.matched[ticker] = by_ticker[ticker]
 
-    words = query.split()
     for ticker_match in _TICKER_RE.finditer(query):
         token = ticker_match.group()
-        if token in _ACRONYM_STOPWORDS:
-            continue
         if token in by_ticker:
             result.matched[token] = by_ticker[token]
+        elif token in ACRONYM_STOPWORDS:
+            continue  # vocabulary, not a company -- checked after the catalog, not before
         elif token not in result.matched:
             result.unmatched.append(token)
 
     for phrase_match in _PROPER_NOUN_RE.finditer(query):
-        phrase = phrase_match.group()
-        if phrase_match.start() == 0 and phrase == words[0].strip(",.?!"):
-            continue  # sentence-initial capitalization is not proof of a proper noun
+        phrase = _strip_possessive(phrase_match.group())
+        if phrase_match.start() == 0 and phrase.lower() not in alias_index and phrase not in by_ticker:
+            # Sentence-initial capitalisation is not proof of a proper noun -- but it
+            # only explains the *first* word. "While Snowflake operates..." still names
+            # a company, so drop the opener and judge what follows on its own.
+            _, _, tail = phrase.partition(" ")
+            phrase = _strip_possessive(tail)
+            if not phrase:
+                continue
+        if phrase.upper() in ACRONYM_STOPWORDS:
+            continue  # "the TTM margin" is vocabulary, not a company
         if phrase.lower() in _QUESTION_STOPWORDS or phrase.lower() in _DOMAIN_STOPWORDS:
             continue
         if any(word.lower() in _QUESTION_STOPWORDS for word in phrase.split()):

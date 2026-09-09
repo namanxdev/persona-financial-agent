@@ -403,9 +403,18 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
   finance vocabulary (`target`, `meta`, `low`, `cost`, `best buy`, `apple`), so those are matched
   only when capitalised as proper nouns: "What about Target?" resolves to TGT, while "the target
   market" stays a sector-wide query. Every other alias matches case-insensitively but only on
-  whole-word boundaries, so "expose the cost" no longer resolves to XPO. The residual gap is a
-  sentence-initial ambiguous alias ("Low margins are a concern") which will still read as a
-  company mention.
+  whole-word boundaries, so "expose the cost" no longer resolves to XPO. Two residual gaps: a
+  sentence-initial ambiguous alias ("Low margins are a concern") still reads as a company
+  mention, and a company *outside* the dataset written in lowercase ("what about snowflake?")
+  is not seen at all, because nothing distinguishes it by shape from an ordinary noun.
+
+  That second gap is covered downstream rather than in the resolver. If the model then writes
+  about a company the catalog does not contain, and the question named it too, the answer becomes
+  the standard refusal -- the draft is discarded, only the name is taken from it, and only after
+  the catalog has already rejected that name, so the reply is still a fixed template. With no
+  `OPENAI_API_KEY` set there is no draft to read, and the same question returns an ordinary
+  sector answer that never mentions the company; the grounding property holds either way, but the
+  refusal is the better answer and it needs the model path.
 
 ## MCP design
 
@@ -497,6 +506,7 @@ actually satisfy.
 | Every ticker-shaped token was retrieved this turn | "NVDA looks cheaper" when NVDA is not in the data |
 | Every number appears verbatim in a display value or `as_of_date` | An invented figure -- and equally a *computed* one, since an average or a delta is still a number no tool returned |
 | Per sentence: one named company means its figures must be that company's | A real number attached to the wrong company |
+| Every company named in the prose is in the sector catalog | An answer *about* Snowflake assembled from META and GOOGL figures |
 | Non-empty thesis, at least one supporting point, length proportionate to the evidence | Empty or runaway output |
 
 A candidate failing any check is discarded and the deterministic composer writes the answer
@@ -506,16 +516,29 @@ never a wrong one. `agent/models.py:Synthesis` is `null` in the response wheneve
 
 **What this does not check.** Attribution is verified per sentence, so a figure moved to the
 wrong company is caught only when that sentence names exactly one company. A sentence naming two
-is checked against the full retrieved set. Qualitative claims ("integration risk is high") are
-the model's own and are not checkable against a database at all -- they are labelled as risks and
-limitations rather than presented as findings.
+is checked against the full retrieved set. Company names are found by the same proper-noun
+resolver a question goes through, which ignores a sentence-initial capital -- so a draft whose
+*only* mention of an uncovered company opens a sentence is missed. Closing that needs a
+dictionary of ordinary words: the version that tried refused a real question about "the margin
+and valuation picture" because the answer opened a bullet with "Valuation". A missed mention
+costs a plainer answer; a false one refuses a question the data can answer, so the gap is left
+open deliberately. Qualitative claims ("integration risk is high") are the model's own and are
+not checkable against a database at all -- they are labelled as risks and limitations rather than
+presented as findings.
 
-**Observed behaviour.** On live `gpt-4o-mini` runs on 2026-09-09, the first two rejections were
-both validator bugs rather than model misbehaviour, and both are now regression tests in
-`tests/test_synthesis.py`: `EV/EBITDA` was being read as a ticker called `EV/`, and one persona
-was rejected for discussing a company it had retrieved but not formally cited. After those fixes
-every sampled run validated -- three persona/sector pairs, a three-persona comparison on tech,
-and the captured API response above.
+**Observed behaviour.** Every rejection seen on live `gpt-4o-mini` runs so far has been a bug in
+the validator rather than model misbehaviour, and each is now a regression test in
+`tests/test_synthesis.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
+discussing a company it had retrieved but not formally cited; `EV` treated as vocabulary by the
+guard but as a company by the resolver, because the two kept separate lists (now one list, in
+`agent/scope.py`); and a bullet opening with `Valuation` read as a company.
+
+The one genuine miss was worse and is what the catalog check exists for. Asked "what do you
+think about snowflake?" -- all lowercase -- the resolver saw no company, so no refusal fired, and
+the model was handed the question and wrote a thesis *about Snowflake* built from META and GOOGL
+figures. Every number in it was real and correctly attributed, so every numeric check passed, and
+`Snowflake` is not ticker-shaped, so the uppercase check passed too. Only comparing the names in
+the prose against the sector catalog catches that.
 
 `AGENT_SYNTHESIS=off` forces the deterministic composer even with a key configured. The test
 suite and CI both set it, which is what makes the results below reproducible rather than
@@ -548,7 +571,7 @@ refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I 
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: `uv run python -m pytest -q` -> **53 passed**, same run, same day.
+Test suite alongside it: `uv run python -m pytest -q` -> **61 passed**, same run, same day.
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

@@ -23,16 +23,30 @@ configured, which is what makes a run reproducible.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Callable
 
-from agent.evidence_guard import evidence_payload, validate
-from agent.models import EvidenceItem, PersonaName, Synthesis
+from agent.evidence_guard import evidence_payload, out_of_scope_mentions, validate
+from agent.models import CompanyRow, EvidenceItem, PersonaName, Synthesis
 from agent.personas import PersonaPolicy
 
 logger = logging.getLogger(__name__)
 
 _MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 _MAX_ITEMS = 6
+
+
+@dataclass(frozen=True)
+class SynthesisResult:
+    """A validated draft, or nothing -- plus why, when the reason is actionable.
+
+    `out_of_scope` carries company names the draft used that the sector catalog
+    does not contain. The draft itself is discarded either way; the names are
+    kept because they tell the caller something the query alone did not.
+    """
+
+    synthesis: Synthesis | None
+    out_of_scope: tuple[str, ...] = ()
 
 
 def render(candidate: Synthesis) -> str:
@@ -68,7 +82,9 @@ def build_prompt(
         "   Never compute, sum, average, round, or restate a number in another form.\n"
         "2. Name companies only by tickers present in the evidence.\n"
         "3. List in evidence_ids every evidence row you drew on, and no others.\n"
-        "4. The qualitative judgement is yours; the numbers are not.\n\n"
+        "4. The qualitative judgement is yours; the numbers are not.\n"
+        "5. Never name a company that is not in the evidence above, even if the question\n"
+        "   asks about one. You hold no data on it, so you cannot discuss it at all.\n\n"
         'Reply with JSON only: {"thesis": str, "supporting_points": [str], "risks": [str],\n'
         ' "limitations": [str], "evidence_ids": [str]}. Keep the thesis to two sentences and\n'
         f" each list to at most {_MAX_ITEMS} short entries."
@@ -96,21 +112,22 @@ def synthesize(
     policy: PersonaPolicy,
     evidence: list[EvidenceItem],
     stance: str,
+    catalog: list[CompanyRow] | None = None,
     complete: Callable[[str], str] | None = None,
-) -> Synthesis | None:
-    """Return a validated Synthesis, or None to fall back to deterministic composition.
+) -> SynthesisResult:
+    """Return a validated draft, or an empty result to fall back to deterministic composition.
 
     `complete` is injectable so the path can be exercised against fixed model
     output without a provider call.
     """
     if not evidence:
-        return None
+        return SynthesisResult(None)
     if os.environ.get("AGENT_SYNTHESIS", "on").strip().lower() == "off":
-        return None
+        return SynthesisResult(None)
     if complete is None:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            return None
+            return SynthesisResult(None)
 
         def complete(prompt: str) -> str:
             return _complete_via_openai(api_key, prompt)
@@ -120,11 +137,12 @@ def synthesize(
         candidate = Synthesis.model_validate_json(raw)
     except Exception as exc:  # provider, transport, or schema failure
         logger.warning("synthesis unavailable, using deterministic composer: %s", exc)
-        return None
+        return SynthesisResult(None)
 
-    reason = validate(candidate, evidence)
+    reason = validate(candidate, evidence, catalog)
     if reason is not None:
         logger.warning("synthesis rejected, using deterministic composer: %s", reason)
-        return None
+        outside = tuple(out_of_scope_mentions(candidate, catalog)) if catalog is not None else ()
+        return SynthesisResult(None, outside)
     logger.info("synthesis accepted (%s), citing %d evidence rows", _MODEL, len(candidate.evidence_ids))
-    return candidate
+    return SynthesisResult(candidate)

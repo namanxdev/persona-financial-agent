@@ -1,4 +1,4 @@
-"""Deterministic claim rendering -- CONTRACTS.md 'Shared agent and API'.
+"""Deterministic claim rendering: every sentence is a template filled from evidence.
 
 Every sentence in an answer comes from a template filled in from an
 EvidenceItem already produced by a tool call this turn (financial rows, screen

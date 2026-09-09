@@ -1,4 +1,4 @@
-"""Stage 4 gate tests: POST /query delegates to answer_query and nothing else."""
+"""API tests: POST /query delegates to answer_query and nothing else."""
 
 from fastapi.testclient import TestClient
 

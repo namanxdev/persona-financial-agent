@@ -8,9 +8,9 @@ package at all), and matches what MCP actually is -- the server could be a
 different language entirely. agent/mcp_client.py validates each tool
 response's JSON directly into these classes.
 
-The Sector/Direction/PeriodKind/SourceRef/*Row shapes intentionally mirror
-CONTRACTS.md's domain models -- this is the agent's own copy of that contract,
-not a re-export of the server's.
+The Sector/Direction/PeriodKind/SourceRef/*Row shapes intentionally mirror the
+wire shapes the MCP server returns -- this package's own copy of that contract,
+not a re-export of the server's classes.
 """
 
 from datetime import date

@@ -4,16 +4,6 @@ This calls `agent.core.answer_query` directly -- the same function the FastAPI
 route calls -- so there is exactly one orchestration implementation with two
 entry points. It must never import `mcp_server`, call the API over HTTP, or
 re-implement any retrieval/composition logic itself.
-
-ASSUMPTION (see report to reviewer): `agent/core.py` does not exist yet while
-this file is written, so `answer_query` is imported from there on the strength
-of the approved file tree (`agent/core.py` is the orchestration module) and
-CONTRACTS.md listing it under "Shared agent and API". The Pydantic models
-(`QueryRequest`, `QueryResponse`, `EvidenceItem`, plus the `PersonaName` /
-`Sector` / `Confidence` literals) are imported from `agent.models`, which
-*does* already exist and was read directly to confirm this split -- CONTRACTS.md
-itself does not say which module owns them. If `agent/core.py` re-exports its
-own copies instead, only this import block should need to change.
 """
 
 import asyncio
@@ -132,10 +122,10 @@ def main() -> None:
             request = QueryRequest(query=query, persona=persona, sector=sector)
             response = run_query(request)
         except Exception as exc:
-            # Deliberately broad: agent.core did not exist at UI-authoring time, so its
-            # exception hierarchy (MCP transport, model, or validation failures) is
-            # unknown. Surfacing every failure here -- rather than guessing a narrower
-            # type -- is what "never fall back to model memory" requires in practice.
+            # Deliberately broad: an MCP transport failure, a provider error, and a
+            # validation error must all reach the user as an error. Narrowing this
+            # would risk a failure mode that renders as a silently empty page, which
+            # is exactly what "never fall back to model memory" has to rule out.
             st.error(f"Query failed ({type(exc).__name__}): {exc}")
             return
 

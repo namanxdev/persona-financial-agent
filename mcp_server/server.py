@@ -1,8 +1,8 @@
 """FastMCP stdio server: registers the four database tools and runs the transport.
 
-Note: normally this file is user-owned per AGENTS.md. The user explicitly lifted
-that restriction for this session (see task briefing) and asked for a full
-implementation rather than a signature-only stub.
+This is the only process in the system that opens the database. It is started as a
+subprocess by agent/mcp_client.py and speaks JSON-RPC over stdio; the four tools
+below are the complete surface the agent can reach data through.
 """
 
 import argparse

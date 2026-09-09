@@ -1,4 +1,4 @@
-"""POST /query -- CONTRACTS.md 'Shared agent and API'.
+"""POST /query: the programmatic entry point onto the shared agent function.
 
 This route performs no retrieval or generation of its own: it validates the
 request body into QueryRequest and delegates entirely to answer_query, the

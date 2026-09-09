@@ -1,7 +1,7 @@
 [project]
 name = "agent-techhome"
 version = "0.1.0"
-description = "Add your description here"
+description = "Persona-configurable financial research agent over an MCP tool boundary"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,4 +1,4 @@
-"""Shared agent entry point -- CONTRACTS.md 'Shared agent and API'.
+"""Shared agent entry point: the one orchestration function behind both interfaces.
 
 FastAPI (api/main.py) and Streamlit (ui/app.py) both call answer_query and
 nothing else -- one implementation, two entry points. Every request opens a

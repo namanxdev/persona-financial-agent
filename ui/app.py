@@ -30,6 +30,8 @@ from agent.models import (  # noqa: E402
     Sector,
     Synthesis,
 )
+from ui.compare import compare_personas  # noqa: E402
+from ui.text import md_safe  # noqa: E402
 
 PERSONA_LABELS: dict[PersonaName, str] = {
     "mutual_fund_analyst": "Mutual Fund Analyst",
@@ -84,13 +86,13 @@ def render_synthesis(synthesis: Synthesis) -> None:
         ):
             if items:
                 st.markdown(f"**{label}**")
-                st.markdown("\n".join(f"- {item}" for item in items))
+                st.markdown("\n".join(f"- {md_safe(item)}" for item in items))
         st.caption("Evidence cited: " + ", ".join(synthesis.evidence_ids))
 
 
 def render_response(response: QueryResponse) -> None:
     st.subheader("Answer")
-    st.write(response.answer)
+    st.write(md_safe(response.answer))
     if response.synthesis is not None:
         render_synthesis(response.synthesis)
     else:
@@ -135,10 +137,19 @@ def main() -> None:
     sector = next(name for name, label in SECTOR_LABELS.items() if label == sector_label)
 
     query = st.text_area("Question", placeholder="e.g. Which companies here look like attractive buyout targets?")
-    if not st.button("Ask", type="primary"):
+    ask_col, compare_col, _ = st.columns([1, 2, 4])
+    asked = ask_col.button("Ask", type="primary")
+    compared = compare_col.button("Compare all three personas")
+    if not asked and not compared:
         return
     if not query.strip():
         st.warning("Enter a question before submitting.")
+        return
+
+    if compared:
+        # Same question, same sector, all three personas -- the persona selector
+        # above is ignored on this path by design.
+        compare_personas(query, sector, run_query)
         return
 
     with st.spinner("Querying the agent (live MCP retrieval + model call)..."):

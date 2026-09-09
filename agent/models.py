@@ -102,6 +102,20 @@ class EvidenceItem(BaseModel):
     source_lineage: list[SourceRef]
 
 
+class Synthesis(BaseModel):
+    """A model-written thesis that passed every check in agent/synthesis.py.
+
+    Present only when the LLM path ran *and* validated; `None` means the
+    deterministic composer wrote the answer.
+    """
+
+    thesis: str
+    supporting_points: list[str]
+    risks: list[str]
+    limitations: list[str]
+    evidence_ids: list[str]
+
+
 class QueryResponse(BaseModel):
     answer: str
     persona: PersonaName
@@ -110,3 +124,4 @@ class QueryResponse(BaseModel):
     evidence: list[EvidenceItem]
     confidence: Confidence
     tools_called: list[str]
+    synthesis: Synthesis | None = None

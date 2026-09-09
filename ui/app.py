@@ -28,6 +28,7 @@ from agent.models import (  # noqa: E402
     QueryRequest,
     QueryResponse,
     Sector,
+    Synthesis,
 )
 
 PERSONA_LABELS: dict[PersonaName, str] = {
@@ -68,9 +69,32 @@ def _evidence_row(item: EvidenceItem) -> dict[str, str | float | int | None]:
     }
 
 
+def render_synthesis(synthesis: Synthesis) -> None:
+    """Show the model's structure only after it survived validation.
+
+    When this block is absent the deterministic composer wrote the answer --
+    either no key is configured, or the model's draft cited evidence or figures
+    that agent/evidence_guard.py could not match to a retrieved row.
+    """
+    with st.expander("Thesis structure (model-written, evidence-validated)", expanded=True):
+        for label, items in (
+            ("Supporting points", synthesis.supporting_points),
+            ("Risks", synthesis.risks),
+            ("Limitations", synthesis.limitations),
+        ):
+            if items:
+                st.markdown(f"**{label}**")
+                st.markdown("\n".join(f"- {item}" for item in items))
+        st.caption("Evidence cited: " + ", ".join(synthesis.evidence_ids))
+
+
 def render_response(response: QueryResponse) -> None:
     st.subheader("Answer")
     st.write(response.answer)
+    if response.synthesis is not None:
+        render_synthesis(response.synthesis)
+    else:
+        st.caption("Composed deterministically from evidence templates (no validated model draft).")
 
     st.subheader("Companies referenced")
     st.write(", ".join(response.companies_referenced) if response.companies_referenced else "None")

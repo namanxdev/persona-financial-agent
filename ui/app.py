@@ -4,31 +4,34 @@ This calls `agent.core.answer_query` directly -- the same function the FastAPI
 route calls -- so there is exactly one orchestration implementation with two
 entry points. It must never import `mcp_server`, call the API over HTTP, or
 re-implement any retrieval/composition logic itself.
-
-ASSUMPTION (see report to reviewer): `agent/core.py` does not exist yet while
-this file is written, so `answer_query` is imported from there on the strength
-of the approved file tree (`agent/core.py` is the orchestration module) and
-CONTRACTS.md listing it under "Shared agent and API". The Pydantic models
-(`QueryRequest`, `QueryResponse`, `EvidenceItem`, plus the `PersonaName` /
-`Sector` / `Confidence` literals) are imported from `agent.models`, which
-*does* already exist and was read directly to confirm this split -- CONTRACTS.md
-itself does not say which module owns them. If `agent/core.py` re-exports its
-own copies instead, only this import block should need to change.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 
 import streamlit as st
 
-from agent.core import answer_query
-from agent.models import (
+# `streamlit run ui/app.py` puts only ui/ on sys.path (streamlit.web.bootstrap._fix_sys_path),
+# and this project is never installed into the environment, so the repo root has to be added
+# here -- the same bootstrap scripts/build_db.py and evals/run_evals.py already use. pytest
+# (`python -m`) and uvicorn (--app-dir defaults to ".") each get it for free; Streamlit does not.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent.core import answer_query  # noqa: E402 (path setup must run first)
+from agent.models import (  # noqa: E402
     Confidence,
     EvidenceItem,
     PersonaName,
     QueryRequest,
     QueryResponse,
     Sector,
+    Synthesis,
 )
+from ui.compare import compare_personas  # noqa: E402
+from ui.text import md_safe  # noqa: E402
 
 PERSONA_LABELS: dict[PersonaName, str] = {
     "mutual_fund_analyst": "Mutual Fund Analyst",
@@ -68,9 +71,32 @@ def _evidence_row(item: EvidenceItem) -> dict[str, str | float | int | None]:
     }
 
 
+def render_synthesis(synthesis: Synthesis) -> None:
+    """Show the model's structure only after it survived validation.
+
+    When this block is absent the deterministic composer wrote the answer --
+    either no key is configured, or the model's draft cited evidence or figures
+    that agent/evidence_guard.py could not match to a retrieved row.
+    """
+    with st.expander("Thesis structure (model-written, evidence-validated)", expanded=True):
+        for label, items in (
+            ("Supporting points", synthesis.supporting_points),
+            ("Risks", synthesis.risks),
+            ("Limitations", synthesis.limitations),
+        ):
+            if items:
+                st.markdown(f"**{label}**")
+                st.markdown("\n".join(f"- {md_safe(item)}" for item in items))
+        st.caption("Evidence cited: " + ", ".join(synthesis.evidence_ids))
+
+
 def render_response(response: QueryResponse) -> None:
     st.subheader("Answer")
-    st.write(response.answer)
+    st.write(md_safe(response.answer))
+    if response.synthesis is not None:
+        render_synthesis(response.synthesis)
+    else:
+        st.caption("Composed deterministically from evidence templates (no validated model draft).")
 
     st.subheader("Companies referenced")
     st.write(", ".join(response.companies_referenced) if response.companies_referenced else "None")
@@ -111,10 +137,19 @@ def main() -> None:
     sector = next(name for name, label in SECTOR_LABELS.items() if label == sector_label)
 
     query = st.text_area("Question", placeholder="e.g. Which companies here look like attractive buyout targets?")
-    if not st.button("Ask", type="primary"):
+    ask_col, compare_col, _ = st.columns([1, 2, 4])
+    asked = ask_col.button("Ask", type="primary")
+    compared = compare_col.button("Compare all three personas")
+    if not asked and not compared:
         return
     if not query.strip():
         st.warning("Enter a question before submitting.")
+        return
+
+    if compared:
+        # Same question, same sector, all three personas -- the persona selector
+        # above is ignored on this path by design.
+        compare_personas(query, sector, run_query)
         return
 
     with st.spinner("Querying the agent (live MCP retrieval + model call)..."):
@@ -122,10 +157,10 @@ def main() -> None:
             request = QueryRequest(query=query, persona=persona, sector=sector)
             response = run_query(request)
         except Exception as exc:
-            # Deliberately broad: agent.core did not exist at UI-authoring time, so its
-            # exception hierarchy (MCP transport, model, or validation failures) is
-            # unknown. Surfacing every failure here -- rather than guessing a narrower
-            # type -- is what "never fall back to model memory" requires in practice.
+            # Deliberately broad: an MCP transport failure, a provider error, and a
+            # validation error must all reach the user as an error. Narrowing this
+            # would risk a failure mode that renders as a silently empty page, which
+            # is exactly what "never fall back to model memory" has to rule out.
             st.error(f"Query failed ({type(exc).__name__}): {exc}")
             return
 

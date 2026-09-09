@@ -1,7 +1,4 @@
-"""Persona retrieval policies -- CONTRACTS.md 'Persona retrieval'.
-
-Normally user-owned per AGENTS.md; the user explicitly lifted that restriction
-for this session and asked for a full implementation, not a stub.
+"""Persona retrieval policies: what each persona retrieves, not how it talks.
 
 Each policy fixes which metrics the persona treats as required (these become
 confidence slots), which metric/direction it screens the sector on, how many
@@ -10,12 +7,9 @@ are deliberately built from different real DB columns so retrieval -- not just
 prose -- diverges: mutual fund screens growth, equity screens margin then
 re-screens valuation, PE pulls raw financials before screening leverage.
 
-Deviation from CONTRACTS.md: PersonaPolicy adds two optional fields,
-`secondary_screen_metric`/`secondary_screen_direction`, both defaulting to
-None. The equity analyst is the only persona that runs a second
-run_sector_screen call (margin, then valuation) per the persona table in
-CONTRACTS.md, and the base schema has no field for a second screen's metric.
-Every field CONTRACTS.md specifies is still present and required.
+`secondary_screen_metric` and `secondary_screen_direction` are optional and
+used by the equity analyst alone -- the one persona whose plan runs a second
+run_sector_screen call, ranking margin first and then valuation ascending.
 """
 
 from pydantic import BaseModel

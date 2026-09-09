@@ -1,4 +1,4 @@
-"""Stage 3 gate tests: real stdio MCP, persona divergence, grounding, confidence.
+"""End-to-end agent tests: real stdio MCP, persona divergence, grounding, confidence.
 
 Every answer_query() call here spawns a real mcp_server subprocess (via
 agent/mcp_client.py) against the committed database -- nothing is mocked.

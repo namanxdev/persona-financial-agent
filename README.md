@@ -1,5 +1,7 @@
 # Agent Techhome
 
+[![CI](https://github.com/namanxdev/persona-financial-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/namanxdev/persona-financial-agent/actions/workflows/ci.yml)
+
 A single, persona-configurable financial research agent that answers questions about 24
 US-listed companies across three sectors (tech, retail, logistics), grounded live in a SQLite
 database it reaches only through an MCP tool boundary. The same agent function is exposed two
@@ -9,12 +11,14 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 
 - [Setup](#setup)
 - [Running the interfaces](#running-the-interfaces)
+- [Deployment](#deployment)
 - [Rebuilding the database](#rebuilding-the-database)
 - [Schema](#schema)
 - [Sourcing method and data-quality caveats](#sourcing-method-and-data-quality-caveats)
 - [MCP design](#mcp-design)
 - [Confidence rule](#confidence-rule)
 - [LLM provider](#llm-provider)
+- [Grounded synthesis](#grounded-synthesis)
 - [Eval results](#eval-results)
 - [What's covered by the data](#whats-covered-by-the-data)
 - [One thing I'd improve with more time](#one-thing-id-improve-with-more-time)
@@ -24,8 +28,8 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 Requires **Python 3.12** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <this-repo>
-cd agent-techhome
+git clone https://github.com/namanxdev/persona-financial-agent.git
+cd persona-financial-agent
 uv sync
 cp .env.example .env
 ```
@@ -56,65 +60,187 @@ derived confidence, and the ordered MCP tool-call trace all render on the page. 
 process is unreachable or the model call fails, the page shows the error directly -- it never
 falls back to answering from model memory.
 
+**Compare all three personas** runs the *same* question through all three personas against the
+same sector and lays the results out side by side: required metrics, screen metric and direction,
+collapsed tool sequence, companies surfaced, answer, and risks. The claim that persona changes
+retrieval rather than tone is the one thing this project most needs to demonstrate, and three
+paragraphs of prose are a poor way to show it -- three tool traces next to each other are not.
+The view states plainly whether all three sequences and all three company sets actually differ
+for the question asked, including when they do not.
+
 ### FastAPI (programmatic)
 
 ```bash
 uv run uvicorn api.main:app --reload
 ```
 
-> Assumption: the ASGI app instance in `api/main.py` is named `app`, per FastAPI/uvicorn
-> convention. `api/main.py` did not exist yet while this README was written (it is owned by the
-> parallel Stage 4 implementation); adjust the `uvicorn` target above if it is named differently.
-
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Which companies in this sector look like attractive buyout targets based on the data you have?",
+    "query": "What is the most recent headcount signal you have for FedEx?",
     "persona": "pe_analyst",
     "sector": "logistics"
   }'
 ```
 
-Representative response shape (illustrative -- built from the `QueryResponse` model in `agent/models.py`
-and real values read from the committed database; not a captured run, since this file was written
-before the agent existed to run):
+Captured verbatim from that request against the committed database, with `OPENAI_API_KEY` set:
 
 ```json
 {
-  "answer": "Among logistics names with comparable data, XPO carries an operating margin of 8.0% (FY2025, 10-K) and GXO an FCF margin of 0.8% (FY2025, 10-K)...",
+  "answer": "FedEx (FDX) demonstrates strong cash generation with a free cash flow (TTM) of $5.7B, indicating solid financial health. However, with a headcount of 300,000 employees and an EV/EBITDA of 8.92x, caution is warranted regarding operational efficiency and potential leverage risks. Supporting evidence: Free cash flow (TTM) of $5.7B Headcount of 300,000 employees EV/EBITDA of 8.92x Strong cash generation capacity Large workforce indicates operational scale Potential for leverage if needed Risks: High headcount may lead to operational inefficiencies Leverage could increase financial risk Market volatility affecting logistics demand Potential for rising costs impacting margins Economic downturns could reduce shipping volumes Competitive pressures in the logistics sector Limitations: Data is as of 2026-09-07 Does not account for future market conditions Limited to cash flow and balance sheet metrics No qualitative insights on management or strategy Does not consider external economic factors Focuses solely on FedEx without sector comparison",
   "persona": "pe_analyst",
   "sector": "logistics",
-  "companies_referenced": ["XPO", "GXO"],
+  "companies_referenced": [
+    "FDX"
+  ],
   "evidence": [
     {
-      "evidence_id": "ev-1",
-      "ticker": "XPO",
-      "field": "operating_margin",
-      "value": 0.0804,
-      "unit": "ratio",
-      "as_of_date": "2025-12-31",
-      "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001166003.json",
-      "source_lineage": []
+      "evidence_id": "FDX:free_cash_flow_ttm",
+      "ticker": "FDX",
+      "field": "free_cash_flow_ttm",
+      "value": 5656625152.0,
+      "unit": "USD",
+      "as_of_date": "2026-09-07",
+      "source_url": "https://finance.yahoo.com/quote/FDX/key-statistics/",
+      "source_lineage": [
+        {
+          "source_url": "https://finance.yahoo.com/quote/FDX/key-statistics/",
+          "as_of_date": "2026-09-07",
+          "field": "free_cash_flow_ttm",
+          "value": 5656625152.0,
+          "unit": "USD",
+          "period_kind": "observation",
+          "period_start": null,
+          "period_end": null
+        }
+      ]
     },
     {
-      "evidence_id": "ev-2",
-      "ticker": "GXO",
-      "field": "fcf_margin",
-      "value": 0.0083,
+      "evidence_id": "FDX:enterprise_to_ebitda",
+      "ticker": "FDX",
+      "field": "enterprise_to_ebitda",
+      "value": 8.924,
       "unit": "ratio",
-      "as_of_date": "2025-12-31",
-      "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001852244.json",
-      "source_lineage": []
+      "as_of_date": "2026-09-07",
+      "source_url": "https://finance.yahoo.com/quote/FDX/key-statistics/",
+      "source_lineage": [
+        {
+          "source_url": "https://finance.yahoo.com/quote/FDX/key-statistics/",
+          "as_of_date": "2026-09-07",
+          "field": "enterprise_to_ebitda",
+          "value": 8.924,
+          "unit": "ratio",
+          "period_kind": "observation",
+          "period_start": null,
+          "period_end": null
+        }
+      ]
+    },
+    {
+      "evidence_id": "FDX:headcount:2026-09-07",
+      "ticker": "FDX",
+      "field": "headcount",
+      "value": 300000.0,
+      "unit": "employees",
+      "as_of_date": "2026-09-07",
+      "source_url": "https://finance.yahoo.com/quote/FDX/profile/",
+      "source_lineage": [
+        {
+          "source_url": "https://finance.yahoo.com/quote/FDX/profile/",
+          "as_of_date": "2026-09-07",
+          "field": "headcount",
+          "value": 300000.0,
+          "unit": "employees",
+          "period_kind": "observation",
+          "period_start": null,
+          "period_end": null
+        }
+      ]
     }
   ],
-  "confidence": "medium",
-  "tools_called": ["list_companies", "get_financials", "run_sector_screen", "get_hiring_signals"]
+  "confidence": "high",
+  "tools_called": [
+    "list_companies",
+    "get_financials",
+    "get_hiring_signals"
+  ],
+  "synthesis": {
+    "thesis": "FedEx (FDX) demonstrates strong cash generation with a free cash flow (TTM) of $5.7B, indicating solid financial health. However, with a headcount of 300,000 employees and an EV/EBITDA of 8.92x, caution is warranted regarding operational efficiency and potential leverage risks.",
+    "supporting_points": [
+      "Free cash flow (TTM) of $5.7B",
+      "Headcount of 300,000 employees",
+      "EV/EBITDA of 8.92x",
+      "Strong cash generation capacity",
+      "Large workforce indicates operational scale",
+      "Potential for leverage if needed"
+    ],
+    "risks": [
+      "High headcount may lead to operational inefficiencies",
+      "Leverage could increase financial risk",
+      "Market volatility affecting logistics demand",
+      "Potential for rising costs impacting margins",
+      "Economic downturns could reduce shipping volumes",
+      "Competitive pressures in the logistics sector"
+    ],
+    "limitations": [
+      "Data is as of 2026-09-07",
+      "Does not account for future market conditions",
+      "Limited to cash flow and balance sheet metrics",
+      "No qualitative insights on management or strategy",
+      "Does not consider external economic factors",
+      "Focuses solely on FedEx without sector comparison"
+    ],
+    "evidence_ids": [
+      "FDX:free_cash_flow_ttm",
+      "FDX:enterprise_to_ebitda",
+      "FDX:headcount:2026-09-07"
+    ]
+  }
 }
 ```
 
-`source_lineage` is shown empty here for brevity; for a derived metric it lists every constituent
-observation (value, unit, period, date, URL) that fed the calculation.
+Two things in that response are worth reading closely. Every figure in `answer` -- `$5.7B`,
+`300,000 employees`, `8.92x`, `2026-09-07` -- appears in an `evidence` row, because the model is
+only ever shown the rendered display strings and every number it writes back is checked against
+them (see [Grounded synthesis](#grounded-synthesis)). And `source_lineage` is populated per
+evidence item: for a derived metric it lists every constituent observation (value, unit, period,
+date, URL) that fed the calculation, not just a final number.
+
+Run the same request with no `OPENAI_API_KEY` and the `evidence`, `confidence`, and `tools_called`
+fields come back identical, `synthesis` is `null`, and `answer` is the deterministic composition:
+
+```
+From a deal/ops view of logistics: the retrieved data argues for caution. FDX's free cash flow
+(TTM) is $5.7B as of 2026-09-07. FDX's EV/EBITDA is 8.92x as of 2026-09-07. FDX's latest
+hiring/headcount signal: 300,000 employees as of 2026-09-07
+(https://finance.yahoo.com/quote/FDX/profile/).
+```
+
+## Deployment
+
+Not deployed from this repository yet. When it is, the live URL belongs at the top of this file;
+what follows is what a deployment actually needs.
+
+**Streamlit Community Cloud** is the natural target: one Streamlit entry point, a committed
+database, and nothing at query time that needs network access.
+
+1. Push this repository to GitHub and, on share.streamlit.io, create an app pointing at
+   `ui/app.py` on `main`.
+2. Dependencies come from the committed `requirements.txt`, exported from the lockfile with
+   `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt`. Regenerate it
+   whenever `pyproject.toml` changes, or the deployment quietly drifts from `uv.lock`.
+3. Add `OPENAI_API_KEY` under the app's **Secrets** to get the synthesis path live. Without it
+   the deployment runs the deterministic composer and still works end to end -- which also makes
+   a keyless deploy a reasonable choice if you would rather not put a key on a hosted app.
+
+**The thing to watch.** Every request spawns `python -m mcp_server.server` as a real subprocess.
+That is the property this project exists to demonstrate, not an implementation detail, so it
+cannot be optimised away for a host that dislikes it. A normal container platform runs it fine;
+a sandbox that forbids process spawning will fail at the first tool call, and the app log will
+show it as an MCP transport error rather than a wrong answer. If a target host forbids
+subprocesses, the honest fixes are a different host or running the MCP server as a separate
+long-lived service -- not collapsing the boundary into an in-process call.
 
 ## Rebuilding the database
 
@@ -128,12 +254,19 @@ uv run python scripts/build_db.py
 
 - Builds into a temporary same-directory file, validates it, then atomically replaces
   `data/agent_techhome.db` only on success. A failed refresh leaves the previous database intact.
-- `--offline` replays the immutable responses already captured under `.source-cache/` with no
-  network access -- useful for a repeatable rebuild without hitting SEC/Yahoo again:
+- `--offline` replays responses already captured under `.source-cache/` with no network access.
 
   ```bash
   uv run python scripts/build_db.py --offline
   ```
+
+  **`.source-cache/` is not in this repository** -- it is gitignored, and at ~84 MB of raw SEC
+  and Yahoo payloads it is not something to commit. A fresh clone therefore has nothing to
+  replay: `--offline` only works after at least one live build has populated the cache locally.
+  It exists so that a *rebuild* is repeatable on a machine that has already fetched once, which
+  matters because `yfinance` output can shift between runs -- not so that a reviewer can rebuild
+  without network access. Reviewers do not need either path: `data/agent_techhome.db` is
+  committed and the app runs against it as-is.
 - `--database PATH` and `--cache-dir PATH` override the defaults (`data/agent_techhome.db` and
   `.source-cache/`) if you want to build a scratch copy without touching the committed file.
 
@@ -263,8 +396,8 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
   freshness bands below rather than always scoring as maximally fresh.
 - **`yfinance` is an unofficial wrapper around undocumented Yahoo endpoints,** not a stable
   published API -- field availability and shape can change between runs. `--offline` mode
-  replays immutable cached responses specifically so a rebuild is repeatable even if live Yahoo
-  output shifts.
+  replays cached responses so a rebuild is repeatable even if live Yahoo output shifts, but only
+  on a machine whose `.source-cache/` a previous live build already filled.
 
 - **Company-name resolution is a heuristic, not an NER model.** Six aliases double as ordinary
   finance vocabulary (`target`, `meta`, `low`, `cost`, `best buy`, `apple`), so those are matched
@@ -322,33 +455,80 @@ stale or missing ones.
 ## LLM provider
 
 **OpenAI**, via the `openai` package, model `gpt-4o-mini` (override with `OPENAI_MODEL`).
-Required key: `OPENAI_API_KEY`. Put it in `.env` -- `agent/config.py` loads that file into the
-environment on import, and a real exported environment variable takes precedence over the file.
-`.env` is gitignored; `.env.example` shows the shape.
+Key: `OPENAI_API_KEY`, **optional**. Put it in `.env` -- `agent/config.py` loads that file into
+the environment on import, and a real exported environment variable takes precedence over the
+file. `.env` is gitignored; `.env.example` shows the shape.
 
-The model's role is deliberately narrow. It picks a single non-factual stance token
-(`constructive` / `cautious` / `mixed`) that selects which canned opening sentence frames the
-answer. It never sees evidence values and cannot emit a number: every figure in a reply is
-substituted from `EvidenceItem` rows by `agent/grounding.py`. That is what makes the grounding
-guarantee hold regardless of what the model returns.
+The model is called at most twice per request: once for a stance token, once to write the answer.
+Both are optional. With no key, or on any provider error, the deterministic composer in
+`agent/grounding.py` writes the answer and the whole system runs offline.
 
-With no key set, or on any provider error, `choose_framing` falls back to a deterministic rule
-over the retrieved metric values, so the app, the API, and the evals all run with no network
-access. `FramingChoice.mode` records which path ran (`llm` or `deterministic_fallback`) and is
-logged per request.
+## Grounded synthesis
 
-Both paths were exercised on 2026-09-07: the deterministic fallback across the full suite and
-eval run with no key set, and the live OpenAI path with a key configured
-(`framing chosen via OpenAI (gpt-4o-mini): cautious`), with 37 tests and 8/8 evals passing in
-both configurations.
+The obvious way to stop an LLM inventing financial figures is to never let it near them: have it
+pick a stance token, fill the numbers into templates, done. That is what this project did first.
+It is genuinely safe -- and a reviewer can fairly call it a rules-based screener with an LLM
+classifier attached, not an agent doing financial reasoning.
+
+The current design keeps the guarantee and drops the constraint. The model writes the answer; it
+simply cannot state anything the evidence does not support, and that is enforced mechanically
+rather than by prompt.
+
+**What the model is given** (`agent/evidence_guard.py`, `evidence_payload`): the evidence rows
+retrieved this turn, rendered to display strings --
+
+```json
+{"evidence_id": "FDX:free_cash_flow_ttm", "ticker": "FDX",
+ "metric": "free cash flow (TTM)", "display": "$5.7B", "as_of_date": "2026-09-07"}
+```
+
+Raw floats are deliberately withheld. The only numbers in front of the model are the exact
+strings the validator will accept back, which makes "copy it verbatim" an instruction it can
+actually satisfy.
+
+**What it must return**: one JSON object -- `thesis`, `supporting_points`, `risks`,
+`limitations`, and the `evidence_ids` it relied on.
+
+**What is checked before any of it reaches the user** (`agent/evidence_guard.py`, `validate`):
+
+| Check | What it rejects |
+| --- | --- |
+| Every cited `evidence_id` was retrieved this turn | A citation to a row no tool returned |
+| Every ticker-shaped token was retrieved this turn | "NVDA looks cheaper" when NVDA is not in the data |
+| Every number appears verbatim in a display value or `as_of_date` | An invented figure -- and equally a *computed* one, since an average or a delta is still a number no tool returned |
+| Per sentence: one named company means its figures must be that company's | A real number attached to the wrong company |
+| Non-empty thesis, at least one supporting point, length proportionate to the evidence | Empty or runaway output |
+
+A candidate failing any check is discarded and the deterministic composer writes the answer
+instead -- the same path taken when no key is configured. The grounding guarantee therefore rests
+on a validator rather than on the model's compliance, and the failure mode is a plainer answer,
+never a wrong one. `agent/models.py:Synthesis` is `null` in the response whenever that happened.
+
+**What this does not check.** Attribution is verified per sentence, so a figure moved to the
+wrong company is caught only when that sentence names exactly one company. A sentence naming two
+is checked against the full retrieved set. Qualitative claims ("integration risk is high") are
+the model's own and are not checkable against a database at all -- they are labelled as risks and
+limitations rather than presented as findings.
+
+**Observed behaviour.** On live `gpt-4o-mini` runs on 2026-09-09, the first two rejections were
+both validator bugs rather than model misbehaviour, and both are now regression tests in
+`tests/test_synthesis.py`: `EV/EBITDA` was being read as a ticker called `EV/`, and one persona
+was rejected for discussing a company it had retrieved but not formally cited. After those fixes
+every sampled run validated -- three persona/sector pairs, a three-persona comparison on tech,
+and the captured API response above.
+
+`AGENT_SYNTHESIS=off` forces the deterministic composer even with a key configured. The test
+suite and CI both set it, which is what makes the results below reproducible rather than
+model-dependent.
 
 ## Eval results
 
-Run on 2026-09-07 against the committed database, over a real stdio MCP subprocess, with no
-`OPENAI_API_KEY` set (so the deterministic fallback composer produced every answer):
+Run on 2026-09-09 against the committed database, over a real stdio MCP subprocess, with no
+`OPENAI_API_KEY` set -- the same configuration CI uses, so the deterministic composer produced
+every answer and this output is reproducible rather than model-dependent:
 
 ```
-$ uv run python evals/run_evals.py
+$ OPENAI_API_KEY= uv run python evals/run_evals.py
 
 CASE                               RESULT  DETAIL
 divergence_tech_investment_case    PASS    sequences_differ=True sets_differ=True all_have_evidence=True
@@ -365,7 +545,10 @@ refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I 
 8/8 cases passed
 ```
 
-Test suite alongside it: `python -m pytest -q` -> **34 passed**.
+(The three divergence rows also print each persona's full tool sequence and company set. Those
+columns are elided above for width and reproduced in the table below.)
+
+Test suite alongside it: `uv run python -m pytest -q` -> **53 passed**, same run, same day.
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

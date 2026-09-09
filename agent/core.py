@@ -1,4 +1,4 @@
-"""Shared agent entry point -- CONTRACTS.md 'Shared agent and API'.
+"""Shared agent entry point: the one orchestration function behind both interfaces.
 
 FastAPI (api/main.py) and Streamlit (ui/app.py) both call answer_query and
 nothing else -- one implementation, two entry points. Every request opens a
@@ -16,6 +16,7 @@ from agent.models import QueryRequest, QueryResponse
 from agent.personas import PersonaPolicy, get_persona
 from agent.retrieval import RetrievalBundle, run_company_focus, run_sector_wide
 from agent.scope import resolve_mentions
+from agent.synthesis import render, synthesize
 
 
 async def answer_query(request: QueryRequest) -> QueryResponse:
@@ -58,6 +59,13 @@ def _build_response(
         bundle.financials,
         bundle.hiring,
     )
+    # Deterministic composition always runs first: it produces the evidence set and
+    # the answer that ships whenever synthesis is unavailable or fails validation.
+    synthesis = synthesize(
+        request.persona, request.sector, request.query, policy, evidence, framing.stance
+    )
+    if synthesis is not None:
+        answer = render(synthesis)
     confidence = compute_confidence(bundle.slots, today=date.today()).tier if evidence else "low"
     companies_referenced = sorted({item.ticker for item in evidence})
     return QueryResponse(
@@ -68,4 +76,5 @@ def _build_response(
         evidence=evidence,
         confidence=confidence,
         tools_called=list(tools_called),
+        synthesis=synthesis,
     )

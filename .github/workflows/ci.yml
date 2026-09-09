@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # No OPENAI_API_KEY is configured here on purpose: CI exercises the
+      # deterministic composer, which is the path that must work offline. The
+      # provider path is covered by tests/test_synthesis.py, which injects
+      # fixed model output instead of calling out.
+      - name: Tests
+        run: uv run python -m pytest -q
+
+      - name: Evals
+        run: uv run python evals/run_evals.py

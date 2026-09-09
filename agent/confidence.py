@@ -1,4 +1,4 @@
-"""Deterministic confidence scoring -- CONTRACTS.md 'Deterministic confidence'.
+"""Deterministic confidence scoring: derived from retrieval slots, never model-chosen.
 
 The model never picks this. One slot is created per (company, required metric)
 in the plan that was actually executed, plus one slot per explicitly requested

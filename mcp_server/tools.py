@@ -1,6 +1,6 @@
 """Tool handlers: validate inputs, query the database, and attach provenance.
 
-Each function mirrors one of the four MCP tools in CONTRACTS.md. They are plain
+Each function implements one of the four MCP tools. They are plain
 async functions taking a connection so mcp_server/server.py (the stdio wiring)
 can register them as tools with minimal glue, and tests can exercise them
 directly against a real sqlite3.Connection without spawning a subprocess.

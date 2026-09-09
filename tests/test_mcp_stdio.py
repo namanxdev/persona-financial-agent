@@ -1,8 +1,8 @@
 """Exercises the four MCP tools through a real stdio subprocess and ClientSession.
 
-Per AGENTS.md/REVIEW_CHECKLIST.md, direct handler calls do not satisfy the Stage 2
-gate -- every assertion here goes through a spawned `python -m mcp_server.server`
-process talking JSON-RPC over stdio, exactly as the agent does in agent/mcp_client.py.
+Calling the handlers directly would not prove the boundary holds, so every assertion
+here goes through a spawned `python -m mcp_server.server` process talking JSON-RPC
+over stdio, exactly as the agent does in agent/mcp_client.py.
 """
 
 import asyncio

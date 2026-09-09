@@ -5,8 +5,8 @@ The app reads OPENAI_API_KEY from os.environ. Without this, a key sitting in
 fallback -- the failure looks exactly like success, which is the worst kind.
 
 Deliberately a small stdlib parser rather than a python-dotenv dependency:
-`python-dotenv` is outside the AGENTS.md allowlist, and the file format we
-need is a handful of KEY=VALUE lines.
+the format needed here is a handful of KEY=VALUE lines, which does not
+justify an extra runtime dependency.
 """
 
 import os

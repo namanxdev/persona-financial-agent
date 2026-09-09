@@ -1,9 +1,9 @@
 """Resolve company mentions in a query against the sector catalog.
 
-CONTRACTS.md: "Before generic screening, load the sector catalog and resolve
-mentions against normalized tickers, full names, and aliases... Any unmatched
-mentioned company gets an explicit no-data response before sector retrieval;
-uppercase-ticker-only detection is insufficient."
+The rule: before any generic screening, load the sector catalog and resolve
+mentions against normalized tickers, full names, and aliases. Any mentioned
+company that does not match gets an explicit no-data response before sector
+retrieval runs -- detecting uppercase tickers alone is not sufficient.
 
 This is a deliberately simple heuristic, not an NER model: it looks for
 ALL-CAPS ticker-shaped tokens and Title-Case proper-noun phrases, matches them

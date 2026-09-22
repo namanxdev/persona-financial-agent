@@ -291,8 +291,8 @@ The design claim is that failures surface instead of quietly degrading into an a
 memory. Two ways to confirm.
 
 **Point the client at a database that does not exist.** The server process dies at startup and the
-error propagates -- verified: the session raises `McpError: Connection closed` during initialize,
-before any tool call, and no answer is produced.
+error propagates -- verified: the handshake fails during initialize, before any tool call, and the
+client raises `McpToolError: MCP server unavailable: Connection closed`. No answer is produced.
 
 ```bash
 uv run python -c "

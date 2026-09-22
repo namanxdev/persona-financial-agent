@@ -41,9 +41,16 @@ class AgentMcpClient:
     async def __aenter__(self) -> "AgentMcpClient":
         command, args, cwd = server_command(self._database_path)
         params = StdioServerParameters(command=command, args=args, cwd=cwd)
-        read, write = await self._stack.enter_async_context(stdio_client(params))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
+        try:
+            read, write = await self._stack.enter_async_context(stdio_client(params))
+            session = await self._stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+        except Exception as exc:
+            # A server that dies before the handshake completes (missing database,
+            # import error) raises from here, not from a tool call -- and __aexit__
+            # never runs when __aenter__ fails, so the subprocess is torn down here.
+            await self._stack.aclose()
+            raise McpToolError(f"MCP server unavailable: {exc}") from exc
         self._session = session
         return self
 

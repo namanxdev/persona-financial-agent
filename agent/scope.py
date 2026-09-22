@@ -11,6 +11,11 @@ against a small alias table for the 24-company universe, and treats anything
 proper-noun-shaped that doesn't match as an explicit out-of-scope mention. It
 is scoped to the *requested sector's* 8 companies, matching how the catalog is
 loaded (list_companies(sector) is always the first tool call).
+
+Known gap: a question written Entirely In Title Case still misfires, because
+any capitalised phrase outside the vocabulary list reads as a name. The real fix
+is to refuse only names that are real companies outside coverage (a server-side
+list such as SEC's company_tickers.json), not to grow the vocabulary list.
 """
 
 import re
@@ -48,10 +53,18 @@ _DOMAIN_STOPWORDS = {
 ACRONYM_STOPWORDS = frozenset({
     "EBITDA", "EBIT", "EBITA", "ROI", "ROIC", "ROE", "ROA", "YOY", "QOQ", "YTD",
     "TTM", "FY", "CEO", "CFO", "COO", "GDP", "CPI", "SEC", "IPO", "ESG", "EPS",
-    "EV", "FCF", "PS", "USD", "USA", "US", "GAAP", "LBO", "IRR", "NAV", "KPI",
+    "EV", "FCF", "PS", "USD", "USA", "US", "GAAP", "LBO", "IRR", "NAV", "KPI", "LTM", "NTM", "CAGR",
     "MF", "PE", "WACC", "DCF", "TAM", "CAPEX", "OPEX", "COGS", "SGA", "AI",
     "OK", "AND", "THE", "BUT", "NOT", "ALL", "NEW", "FOR", "PER", "VS", "IN",
     "ON", "AT", "TO", "OF", "IS",
+})
+# Ordinary finance words people capitalise mid-sentence ("the Fed", "Q2 Results",
+# "AI Capex"). A proper-noun phrase made only of these is not a company name.
+_FINANCE_VOCABULARY = frozenset({
+    "results", "earnings", "fed", "capex", "opex", "economy", "fund", "funds", "mutual",
+    "wall", "street", "market", "markets", "guidance", "outlook", "revenue", "margins",
+    "margin", "growth", "inflation", "tariff", "tariffs", "recession", "rates", "sector",
+    "industry", "quarter", "valuation", "dividend", "dividends", "debt", "cash", "strong", "weak",
 })
 # Aliases that are also ordinary finance vocabulary. A mention of one of these
 # only counts as a company reference when it is capitalised as a proper noun.
@@ -70,6 +83,14 @@ class ScopeResult:
 def _strip_possessive(phrase: str) -> str:
     """"Snowflake's" and "Snowflake" are one mention, not two."""
     return phrase[:-2] if phrase.endswith("'s") else phrase
+
+
+def _is_vocabulary(word: str) -> bool:
+    bare = _strip_possessive(word).lower()
+    return (
+        bare in _FINANCE_VOCABULARY or bare in _QUESTION_STOPWORDS
+        or bare in _DOMAIN_STOPWORDS or bare.upper() in ACRONYM_STOPWORDS
+    )
 
 
 def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
@@ -157,10 +178,8 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
             phrase = _strip_possessive(tail)
             if not phrase:
                 continue
-        if phrase.upper() in ACRONYM_STOPWORDS:
-            continue  # "the TTM margin" is vocabulary, not a company
-        if phrase.lower() in _QUESTION_STOPWORDS or phrase.lower() in _DOMAIN_STOPWORDS:
-            continue
+        if all(_is_vocabulary(word) for word in phrase.split()):
+            continue  # "the TTM margin", "the Fed", "AI Capex" are vocabulary, not companies
         if any(word.lower() in _QUESTION_STOPWORDS for word in phrase.split()):
             continue
         if phrase.lower() in alias_index or phrase in by_ticker:

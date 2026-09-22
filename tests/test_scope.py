@@ -55,3 +55,36 @@ def test_resolve_mentions_against_the_real_catalog(
     result = resolve_mentions(query, _catalog(sector))
     assert set(result.matched) == matched
     assert result.unmatched == unmatched
+
+
+@pytest.mark.parametrize(
+    ("sector", "query", "matched"),
+    [
+        # Capitalised finance vocabulary is not a company outside the dataset.
+        ("tech", "What do you think of Q2 Results?", set()),
+        ("retail", "What does the Fed rate cut mean for Target?", {"TGT"}),
+        ("tech", "How exposed is the sector to AI Capex?", set()),
+        ("retail", "Should a Mutual Fund hold Costco?", {"COST"}),
+        ("logistics", "I think the US Economy is slowing; who benefits?", set()),
+        ("tech", "Which has the best LTM margins and CAGR?", set()),
+    ],
+)
+def test_capitalised_vocabulary_is_not_an_out_of_scope_company(
+    sector: Sector, query: str, matched: set[str]
+) -> None:
+    result = resolve_mentions(query, _catalog(sector))
+    assert set(result.matched) == matched
+    assert result.unmatched == []
+
+
+@pytest.mark.parametrize(
+    ("sector", "query", "name"),
+    [
+        ("tech", "What do you think about Snowflake?", "Snowflake"),
+        ("retail", "Tell me about Amazon", "Amazon"),
+        ("tech", "What about Nvidia?", "Nvidia"),
+        ("logistics", "What do you think about RIVN?", "RIVN"),
+    ],
+)
+def test_real_companies_outside_the_dataset_are_still_refused(sector: Sector, query: str, name: str) -> None:
+    assert resolve_mentions(query, _catalog(sector)).unmatched == [name]

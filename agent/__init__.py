@@ -1,4 +1,4 @@
-"""Persona-configurable agent. Reaches data only through mcp_server via MCP stdio."""
+"""Persona-configurable agent. Reaches data only through the MCP server over stdio."""
 
 # Imported for its side effect: .env must populate os.environ before any module
 # below reads OPENAI_API_KEY at import time.

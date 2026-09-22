@@ -238,10 +238,12 @@ PE persona pulls the whole cohort first, its company set differs by construction
 mutual-fund-vs-equity difference (CSCO against ADBE/IBM) is the genuinely data-driven one.
 
 **Every number is grounded.** Take any figure out of the answer prose and find it in the evidence
-table. There should be no orphans: prose is assembled from evidence rows by templates in
-`agent/grounding.py`, and the model never sees a value. To convince yourself the model cannot
-invent numbers, run the same query with and without `OPENAI_API_KEY` -- the opening framing
-sentence may change, the figures cannot.
+table. There should be no orphans. Keyless, prose is assembled from evidence rows by templates in
+`agent/grounding.py`. With a key, the model does see the evidence -- as rendered display strings
+(`45.1%`, `$5.7B`), never raw floats -- and writes the answer, but `agent/evidence_guard.py`
+rejects any figure not copied verbatim from those strings and the template answer ships instead.
+To convince yourself the model cannot invent numbers, run the same query with and without
+`OPENAI_API_KEY` -- the prose may change, the figures cannot.
 
 **Confidence is computed, not guessed.** The rule lives in `agent/confidence.py`: one slot per
 (company, required metric) plus one per requested hiring signal;

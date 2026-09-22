@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (61 tests, ~24s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (92 tests, ~27s, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -66,7 +66,9 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
              -> list_companies(sector)              # always the first tool call
              -> scope.resolve_mentions              # unmatched company -> refusal, return early
              -> retrieval.run_company_focus | run_sector_wide   # persona-driven tool plan
-             -> llm.choose_framing                  # stance token only, never sees values
+             -- MCP session closes; the rest runs in a worker thread (sync provider calls) --
+             -> llm.choose_framing                  # sees labeled values, returns one stance
+                                                    # word; keyless it is always "neutral"
              -> grounding.compose_answer            # templates filled from EvidenceItem rows
              -> synthesis.synthesize                # model writes the thesis; evidence_guard
                                                     # validates it or it is discarded

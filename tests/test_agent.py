@@ -33,6 +33,12 @@ def test_agent_package_never_imports_a_db_driver() -> None:
         assert not FORBIDDEN.search(code), f"forbidden DB-driver reference in {path}"
 
 
+def test_agent_package_never_names_the_server_package() -> None:
+    """Constraint 2 covers strings and docstrings too, so no stripping here."""
+    for path in (ROOT / "agent").glob("*.py"):
+        assert "mcp_server" not in path.read_text(encoding="utf-8"), f"server package named in {path}"
+
+
 def test_scope_resolution_refuses_ordinary_mixed_case_name_before_retrieval() -> None:
     response = _run(QueryRequest(query="What do you think about Snowflake?", persona="equity_analyst", sector="tech"))
     assert "snowflake" in response.answer.lower() or "Snowflake" in response.answer

@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (105 tests, ~30s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (117 tests, ~30s, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -93,11 +93,12 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
 - `agent/synthesis.py` + `agent/evidence_guard.py` are the LLM answer path. The model sees the
   evidence as *display strings only* (never raw floats) and returns JSON: thesis,
   supporting_points, risks, limitations, evidence_ids. `evidence_guard.validate` then rejects
-  unretrieved evidence ids, tickers never retrieved, numbers absent from the display strings
-  (invented *or* computed), and figures attached to the wrong company in a single-company
-  sentence, and any company name absent from the sector catalog. Rejection falls back to
+  unretrieved evidence ids, tickers never retrieved, figures absent from the display strings
+  as typed quantities (invented, computed, or with sign/magnitude/unit changed), dates no row
+  carries, figures attached to the wrong company in a single-company sentence (named by ticker
+  or by company name), and any company name absent from the sector catalog. Rejection falls back to
   `grounding.py`. The guarantee is the validator, not the prompt -- if you weaken `validate`, you
-  have weakened the whole design, so change it only alongside a test in `tests/test_synthesis.py`.
+  have weakened the whole design, so change it only alongside a test in `tests/test_evidence_guard.py`.
   `AGENT_SYNTHESIS=off` forces the deterministic path; `tests/conftest.py` sets it so the suite
   never calls a provider.
 - `agent/scope.py` owns `ACRONYM_STOPWORDS`, the one list of uppercase tokens that are vocabulary

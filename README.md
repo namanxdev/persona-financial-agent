@@ -527,8 +527,9 @@ actually satisfy.
 | --- | --- |
 | Every cited `evidence_id` was retrieved this turn | A citation to a row no tool returned |
 | Every ticker-shaped token was retrieved this turn | "NVDA looks cheaper" when NVDA is not in the data |
-| Every number appears verbatim in a display value or `as_of_date` | An invented figure -- and equally a *computed* one, since an average or a delta is still a number no tool returned |
-| Per sentence: one named company means its figures must be that company's | A real number attached to the wrong company |
+| Every figure matches a display value as a typed quantity -- sign, currency, digits, suffix (`B`, `M`, `K`, `%`, `x`) -- read by the same pattern from both sides | An invented figure; equally a *computed* one, since an average or a delta is still a number no tool returned; and a real figure with its sign dropped (`$24.5B` for `-$24.5B`), its magnitude changed (`$24.5M`) or its unit swapped (`45.1x` for `45.1%`) |
+| Every `YYYY-MM-DD` date equals a retrieved `as_of_date` | A date no row carries |
+| Per sentence: one named company -- by ticker *or* by name -- means its figures must be that company's | A real number attached to the wrong company, including "Apple's operating margin is 45.1%" when 45.1% is MSFT's |
 | Every company named in the prose is in the sector catalog | An answer *about* Snowflake assembled from META and GOOGL figures |
 | Non-empty thesis, at least one supporting point, length proportionate to the evidence | Empty or runaway output |
 
@@ -539,7 +540,11 @@ never a wrong one. `agent/models.py:Synthesis` is `null` in the response wheneve
 
 **What this does not check.** Attribution is verified per sentence, so a figure moved to the
 wrong company is caught only when that sentence names exactly one company. A sentence naming two
-is checked against the full retrieved set. Company names are found by the same proper-noun
+is checked against the full retrieved set, and so is a pronoun hand-off ("Its margin is 45.1%"),
+because a sentence naming no company cannot be pinned to one. Numbers written as words ("roughly
+double") are not figures to the validator at all. The real fix for both is numbers by reference:
+the model writes `{evidence_id}` placeholders and the server renders the display string, so the
+model never types a figure. That is the next step, not something built here. Company names are found by the same proper-noun
 resolver a question goes through, which ignores a sentence-initial capital -- so a draft whose
 *only* mention of an uncovered company opens a sentence is missed. Closing that needs a
 dictionary of ordinary words: the version that tried refused a real question about "the margin
@@ -551,7 +556,7 @@ presented as findings.
 
 **Observed behaviour.** Every rejection seen on live `gpt-4o-mini` runs so far has been a bug in
 the validator rather than model misbehaviour, and each is now a regression test in
-`tests/test_synthesis.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
+`tests/test_evidence_guard.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
 discussing a company it had retrieved but not formally cited; `EV` treated as vocabulary by the
 guard but as a company by the resolver, because the two kept separate lists (now one list, in
 `agent/scope.py`); and a bullet opening with `Valuation` read as a company.

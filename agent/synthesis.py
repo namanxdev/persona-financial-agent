@@ -7,9 +7,10 @@ limitations, and the evidence_ids it relied on. None of it is trusted on return:
 
   * every evidence_id must be one actually retrieved this turn,
   * every ticker-shaped token in the prose must belong to a cited company,
-  * every numeric token in the prose must appear verbatim in a display value or
-    as_of_date the model was handed -- so it may quote a figure but cannot
-    compute, restate, round, or invent one.
+  * every figure in the prose must match a display value it was handed as a
+    typed quantity (sign, currency, digits, suffix), and every date an
+    as_of_date -- so it may quote a figure but cannot compute, restate, round,
+    re-sign, re-scale, or invent one.
 
 A candidate that fails any check is discarded and agent/grounding.py composes
 the answer instead -- the same path taken when no key is configured or the

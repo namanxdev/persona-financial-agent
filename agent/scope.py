@@ -55,7 +55,7 @@ ACRONYM_STOPWORDS = frozenset({
 })
 # Aliases that are also ordinary finance vocabulary. A mention of one of these
 # only counts as a company reference when it is capitalised as a proper noun.
-_CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple"})
+_CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple", "ups"})
 
 _PROPER_NOUN_RE = re.compile(r"[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+){0,2}")
 _TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
@@ -82,8 +82,8 @@ def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
     return index
 
 
-def _alias_mentioned(alias: str, query: str, query_lower: str) -> bool:
-    """Whether `alias` appears in `query` as an actual company mention.
+def _alias_spans(alias: str, query: str) -> list[tuple[int, int]]:
+    """Where `alias` appears in `query` as an actual company mention.
 
     Two distinct false-positive classes have to be excluded, and they need
     different treatment:
@@ -97,35 +97,55 @@ def _alias_mentioned(alias: str, query: str, query_lower: str) -> bool:
        capitalised it. "What about Target?" resolves; "the target market" does
        not. Unambiguous aliases ("costco", "walmart") stay case-insensitive so
        a lowercase query still works.
+
+    Spans are offsets into `query` itself (case-insensitive matching runs on the
+    original string, not a lowercased copy), so the caller can blank them out.
     """
     if alias in _CASE_SENSITIVE_ALIASES:
         # Look for the proper-noun spelling in the untouched query: "Target",
         # "Best Buy", "META". The lowercase form is ordinary vocabulary.
-        return any(
-            re.search(rf"(?<!\w){re.escape(variant)}(?!\w)", query)
-            for variant in (alias.title(), alias.upper())
-        )
-    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", query_lower) is not None
+        variants = [re.compile(rf"(?<!\w){re.escape(v)}(?!\w)") for v in (alias.title(), alias.upper())]
+    else:
+        variants = [re.compile(rf"(?<!\w){re.escape(alias)}(?!\w)", re.IGNORECASE)]
+    return [match.span() for pattern in variants for match in pattern.finditer(query)]
+
+
+def _mask(text: str, spans: list[tuple[int, int]]) -> str:
+    """Blank out resolved mentions, keeping every other offset where it was.
+
+    Without this, a later scan re-reads the leftovers of a name it already
+    resolved -- "Lowe's" matched LOW, then "Lowe" came back as an unknown
+    company and the whole turn was refused.
+    """
+    chars = list(text)
+    for start, end in spans:
+        chars[start:end] = " " * (end - start)
+    return "".join(chars)
 
 
 def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
     by_ticker = {company.ticker: company for company in catalog}
     alias_index = _alias_index(catalog)
-    query_lower = query.lower()
     result = ScopeResult()
 
+    resolved: list[tuple[int, int]] = []
     for alias, ticker in alias_index.items():
-        if len(alias) >= 2 and _alias_mentioned(alias, query, query_lower):
+        spans = _alias_spans(alias, query) if len(alias) >= 2 else []
+        if spans:
             result.matched[ticker] = by_ticker[ticker]
+            resolved.extend(spans)
+    query = _mask(query, resolved)
 
     for ticker_match in _TICKER_RE.finditer(query):
         token = ticker_match.group()
         if token in by_ticker:
             result.matched[token] = by_ticker[token]
+            resolved.append(ticker_match.span())
         elif token in ACRONYM_STOPWORDS:
             continue  # vocabulary, not a company -- checked after the catalog, not before
         elif token not in result.matched:
             result.unmatched.append(token)
+    query = _mask(query, resolved)
 
     for phrase_match in _PROPER_NOUN_RE.finditer(query):
         phrase = _strip_possessive(phrase_match.group())

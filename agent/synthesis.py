@@ -50,16 +50,26 @@ class SynthesisResult:
     out_of_scope: tuple[str, ...] = ()
 
 
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
 def render(candidate: Synthesis) -> str:
-    """Flatten a validated synthesis into the `answer` string."""
-    parts = [candidate.thesis.strip()]
+    """Flatten a validated synthesis into the `answer` string.
+
+    List items are separated with "; " and each section closes with a period --
+    bullets are usually fragments without punctuation, and joined on bare spaces
+    they ran together into one unreadable sentence.
+    """
+    parts = [_sentence(candidate.thesis)]
     for label, items in (
         ("Supporting evidence", candidate.supporting_points),
         ("Risks", candidate.risks),
         ("Limitations", candidate.limitations),
     ):
         if items:
-            parts.append(f"{label}: " + " ".join(item.strip() for item in items))
+            parts.append(_sentence(f"{label}: " + "; ".join(item.strip().rstrip(".;") for item in items)))
     return " ".join(parts)
 
 

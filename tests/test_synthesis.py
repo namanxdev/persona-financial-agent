@@ -96,3 +96,18 @@ def test_a_name_the_model_raised_by_itself_does_not_trigger_a_refusal() -> None:
     perfectly good sector question.
     """
     assert _query_named_out_of_scope(("Nvidia",), "how does this sector look?") == []
+
+
+def test_render_separates_list_items_and_closes_each_section() -> None:
+    """Items used to be joined with bare spaces: "Supporting evidence: Free cash flow
+    (TTM) of $5.7B Headcount of 300,000 employees EV/EBITDA of 8.92x..."."""
+    draft = candidate(
+        thesis="FDX generates cash",
+        supporting_points=["Free cash flow (TTM) of $5.7B", "Headcount of 300,000 employees."],
+        risks=["Leverage could rise"],
+        limitations=[],
+    )
+    assert render(draft) == (
+        "FDX generates cash. Supporting evidence: Free cash flow (TTM) of $5.7B; "
+        "Headcount of 300,000 employees. Risks: Leverage could rise."
+    )

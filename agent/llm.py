@@ -66,7 +66,9 @@ def _choose_via_openai(
 ) -> FramingChoice:
     from openai import OpenAI  # deferred import: keeps offline runs dependency-light
 
-    client = OpenAI(api_key=api_key)
+    # The SDK default is a 600 s read timeout with 2 retries: far too long to hold a
+    # request open for a one-word reply that has a deterministic fallback.
+    client = OpenAI(api_key=api_key, timeout=20.0, max_retries=1)
     prompt = (
         f"Persona: {persona}. Sector: {sector}. Question: {query!r}. "
         f"Retrieved signals (company metric=value): {signals}. "

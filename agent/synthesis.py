@@ -100,7 +100,9 @@ def build_prompt(
 def _complete_via_openai(api_key: str, prompt: str) -> str:
     from openai import OpenAI  # deferred import: keeps offline runs dependency-light
 
-    client = OpenAI(api_key=api_key)
+    # Bounded for the same reason as agent/llm.py: a slow draft falls back to the
+    # deterministic composer rather than holding the request open for minutes.
+    client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
     response = client.chat.completions.create(
         model=_MODEL,
         messages=[{"role": "user", "content": prompt}],

@@ -6,6 +6,7 @@ fresh stdio MCP session; there is no caching and no fallback to model
 knowledge if the server or a tool call fails.
 """
 
+import asyncio
 from datetime import date
 
 from agent.confidence import compute_confidence
@@ -40,8 +41,12 @@ async def answer_query(request: QueryRequest) -> QueryResponse:
             bundle = await run_company_focus(client, policy, sorted(scope.matched), request.query)
         else:
             bundle = await run_sector_wide(client, policy, request.sector, companies)
+        tools_called = list(client.tool_calls)
 
-        return _build_response(request, policy, bundle, client.tool_calls, companies)
+    # Retrieval is finished, so the MCP subprocess is already closed before either
+    # model call starts. The provider clients are synchronous: run on the event loop
+    # they would stall every other in-flight request, so they get a worker thread.
+    return await asyncio.to_thread(_build_response, request, policy, bundle, tools_called, companies)
 
 
 def _query_named_out_of_scope(names: tuple[str, ...], query: str) -> list[str]:

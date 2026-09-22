@@ -10,6 +10,7 @@ server_launch.py, a neutral module outside both agent/ and the server package.
 """
 
 from contextlib import AsyncExitStack
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,11 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from agent.models import CompanyRow, Direction, FinancialRow, HiringSignalRow, ScreenResult, Sector
 from server_launch import DEFAULT_DATABASE, server_command
+
+
+# Per-request deadline on every MCP round trip. Without one, a hung server hangs
+# the HTTP request forever; with one, it surfaces as McpToolError -> 502.
+_READ_TIMEOUT = timedelta(seconds=15)
 
 
 class McpToolError(RuntimeError):
@@ -43,7 +49,9 @@ class AgentMcpClient:
         params = StdioServerParameters(command=command, args=args, cwd=cwd)
         try:
             read, write = await self._stack.enter_async_context(stdio_client(params))
-            session = await self._stack.enter_async_context(ClientSession(read, write))
+            session = await self._stack.enter_async_context(
+                ClientSession(read, write, read_timeout_seconds=_READ_TIMEOUT)
+            )
             await session.initialize()
         except Exception as exc:
             # A server that dies before the handshake completes (missing database,

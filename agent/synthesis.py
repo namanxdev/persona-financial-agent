@@ -70,11 +70,17 @@ def build_prompt(
     payload: list[dict[str, str]],
     stance: str,
 ) -> str:
+    # "neutral" means no stance was actually judged upstream (the keyless rule
+    # never picks one), so the model forms its own rather than being told one.
+    stance_line = (
+        "Decide the overall stance yourself from the evidence." if stance == "neutral"
+        else f"Overall stance to take: {stance}."
+    )
     return (
         f"You are a {persona.replace('_', ' ')} answering a question about the {sector} sector.\n"
         f"Question: {query!r}\n"
         f"Your screening approach this turn: {policy.ranking_rationale}\n"
-        f"Overall stance to take: {stance}.\n\n"
+        f"{stance_line}\n\n"
         f"Evidence retrieved this turn (the ONLY facts you may use):\n{json.dumps(payload, indent=1)}\n\n"
         "Write an investment thesis grounded exclusively in that evidence. These rules are\n"
         "enforced by a validator that discards your whole answer on any violation:\n"

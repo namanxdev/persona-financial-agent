@@ -24,6 +24,7 @@ _STANCE_QUALIFIER: dict[str, str] = {
     "constructive": "the retrieved data points to constructive momentum",
     "cautious": "the retrieved data argues for caution",
     "mixed": "the retrieved data is mixed",
+    "neutral": "here is what the retrieved data shows",
 }
 
 

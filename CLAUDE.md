@@ -129,7 +129,7 @@ balance-sheet instant, and a Yahoo point-in-time snapshot stay distinguishable.
   expectations and confidence tiers.
 - `evals/cases.py` reads expected values via a direct `sqlite3` query — a deliberately different code
   path from the agent's MCP retrieval, so the assertion is that two independent paths agree.
-- `OPENAI_API_KEY` is optional. Unset, `choose_framing` uses a deterministic rule and everything
-  still runs offline. `agent/config.py` loads `.env` on import; a real exported env var wins.
+- `OPENAI_API_KEY` is optional. Unset, `choose_framing` returns the `neutral` stance (averaging
+  mixed-unit values says nothing) and everything still runs offline. `agent/config.py` loads `.env` on import; a real exported env var wins.
 - Style: type hints everywhere, Pydantic for anything crossing a boundary, no bare `except`,
   comments explain *why*, no emoji.

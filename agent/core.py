@@ -73,8 +73,10 @@ def _build_response(
     tools_called: list[str],
     catalog: list[CompanyRow],
 ) -> QueryResponse:
-    signal_values = [float(slot.value) for slot in bundle.slots if isinstance(slot.value, (int, float))]
-    framing = choose_framing(request.persona, request.sector, request.query, signal_values)
+    # Labeled, so a model judging the stance knows which company and metric each
+    # figure belongs to -- a bare list of mixed-unit floats cannot be read at all.
+    signals = [f"{slot.company} {slot.field}={slot.value}" for slot in bundle.slots if slot.value is not None]
+    framing = choose_framing(request.persona, request.sector, request.query, signals)
     answer, evidence = compose_answer(
         request.persona,
         request.sector,

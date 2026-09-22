@@ -215,7 +215,7 @@ Run the same request with no `OPENAI_API_KEY` and the `evidence`, `confidence`, 
 fields come back identical, `synthesis` is `null`, and `answer` is the deterministic composition:
 
 ```
-From a deal/ops view of logistics: the retrieved data argues for caution. FDX's free cash flow
+From a deal/ops view of logistics: here is what the retrieved data shows. FDX's free cash flow
 (TTM) is $5.7B as of 2026-09-07. FDX's EV/EBITDA is 8.92x as of 2026-09-07. FDX's latest
 hiring/headcount signal: 300,000 employees as of 2026-09-07
 (https://finance.yahoo.com/quote/FDX/profile/).

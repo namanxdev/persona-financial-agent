@@ -31,7 +31,7 @@ committed, so there is nothing to build either.
 If you *do* want to exercise the live OpenAI path, put a key in `.env` (`cp .env.example .env`
 first). `agent/config.py` reads that file on import. You will see which path ran in the logs:
 `framing chosen via OpenAI (gpt-4o-mini): cautious` versus
-`framing chosen via deterministic fallback: cautious`.
+`framing chosen via deterministic fallback: neutral` (with no key the answer opens without claiming a stance).
 
 ## 1. The 30-second smoke test
 
@@ -94,7 +94,7 @@ print('companies:', r.companies_referenced)
 Real output:
 
 ```
-From a deal/ops view of logistics: the retrieved data argues for caution. UPS's free cash flow
+From a deal/ops view of logistics: here is what the retrieved data shows. UPS's free cash flow
 (TTM) is $5.6B as of 2026-09-07. UPS's EV/EBITDA is 9.19x as of 2026-09-07. UPS's latest
 hiring/headcount signal: 460,000 employees as of 2026-09-07
 (https://finance.yahoo.com/quote/UPS/profile/).
@@ -175,7 +175,7 @@ Real response, answer field trimmed:
 
 ```json
 {
-  "answer": "From a deal/ops view of logistics: the retrieved data argues for caution. Pulls raw
+  "answer": "From a deal/ops view of logistics: here is what the retrieved data shows. Pulls raw
     cash-flow and multiple data across the whole sector first, then screens liabilities-to-equity
     ascending ... Ranked by liabilities/equity, #1: JBHT at 1.22x (as of 2025-12-31). Ranked by
     liabilities/equity, #2: CHRW at 1.74x (as of 2025-12-31). Excluded from the liabilities/equity

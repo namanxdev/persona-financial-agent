@@ -599,7 +599,7 @@ refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I 
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: `uv run python -m pytest -q` -> **61 passed**, same run, same day.
+Test suite alongside it: `uv run python -m pytest -q` -> **127 passed** (re-run 2026-09-22 after the post-review fixes; the eval table above came out identical).
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

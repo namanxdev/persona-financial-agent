@@ -43,7 +43,7 @@ uv run python evals/run_evals.py
 Expected, verified:
 
 ```
-61 passed, 2 warnings in 23.94s
+127 passed, 2 warnings in 42.06s
 ```
 
 ```

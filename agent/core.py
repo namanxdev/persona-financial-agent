@@ -10,6 +10,7 @@ import asyncio
 from datetime import date
 
 from agent.confidence import compute_confidence
+from agent.focus import question_focus
 from agent.grounding import compose_answer, out_of_scope_answer
 from agent.llm import choose_framing
 from agent.mcp_client import AgentMcpClient
@@ -37,10 +38,12 @@ async def answer_query(request: QueryRequest) -> QueryResponse:
                 tools_called=list(client.tool_calls),
             )
 
+        # The persona sets the lens; the question adds a focus from a closed list.
+        focus = question_focus(request.query)
         if scope.matched:
-            bundle = await run_company_focus(client, policy, sorted(scope.matched), request.query)
+            bundle = await run_company_focus(client, policy, sorted(scope.matched), request.query, focus)
         else:
-            bundle = await run_sector_wide(client, policy, request.sector, companies)
+            bundle = await run_sector_wide(client, policy, request.sector, companies, focus)
         tools_called = list(client.tool_calls)
 
     # Retrieval is finished, so the MCP subprocess is already closed before either
@@ -91,6 +94,8 @@ def _build_response(
         bundle.secondary_screen,
         bundle.financials,
         bundle.hiring,
+        bundle.focus_screen,
+        bundle.focus_metric,
     )
     # Deterministic composition always runs first: it produces the evidence set and
     # the answer that ships whenever synthesis is unavailable or fails validation.

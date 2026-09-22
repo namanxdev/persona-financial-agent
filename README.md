@@ -72,6 +72,19 @@ paragraphs of prose are a poor way to show it -- three tool traces next to each 
 The view states plainly whether all three sequences and all three company sets actually differ
 for the question asked, including when they do not.
 
+**Question focus.** The persona sets the lens; the question adds a focus from a closed list.
+`agent/focus.py` maps fixed keywords to real columns and a default direction -- debt/borrowing to
+`total_debt` ascending, leverage/balance sheet to `liabilities_to_equity` ascending, growth to
+`revenue_growth_yoy`, margin/profitability to `operating_margin_ttm`, valuation/cheap/P/E to
+`trailing_pe` ascending, cash flow/FCF to `free_cash_flow_ttm` -- and a nearby "least", "lowest",
+"most" or "highest" overrides the direction. A question naming companies fetches the focus
+metrics alongside the persona's; a sector question runs one extra `run_sector_screen` on the first
+focus metric, unless the persona already screens it. No model picks metrics, and focus metrics
+count as required confidence slots, so missing data for exactly what was asked lowers confidence.
+The divergence questions carry no focus, so the three persona plans run unchanged for them. Asked
+"Which logistics company carries the least debt?", the mutual fund persona now answers with a
+`total_debt` ranking first, then its usual growth screen.
+
 ### FastAPI (programmatic)
 
 ```bash

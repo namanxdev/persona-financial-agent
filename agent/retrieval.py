@@ -6,6 +6,12 @@ Two paths, chosen by agent/core.py based on scope resolution:
 - Sector wide: run the persona's screen(s), then enrich the ranked names with
   any remaining required metrics, then hiring where the policy calls for it.
 
+Either path then adds the question's focus (agent/focus.py): company focus
+fetches the focus metrics alongside the persona's, and sector wide runs one
+extra screen on the first focus metric unless the persona already ranked it.
+Focus metrics are required confidence slots -- missing data for exactly what
+was asked has to cost confidence.
+
 Every data access goes through AgentMcpClient (agent/mcp_client.py); this
 module never touches a database driver, matching the rest of agent/.
 """
@@ -14,7 +20,7 @@ from dataclasses import dataclass, field
 
 from agent.confidence import Slot
 from agent.mcp_client import AgentMcpClient
-from agent.models import CompanyRow, FinancialRow, HiringSignalRow, ScreenResult, Sector
+from agent.models import CompanyRow, Direction, FinancialRow, HiringSignalRow, ScreenResult, Sector
 from agent.personas import PersonaPolicy
 
 
@@ -25,6 +31,8 @@ class RetrievalBundle:
     financials: dict[str, list[FinancialRow]] = field(default_factory=dict)
     hiring: dict[str, list[HiringSignalRow]] = field(default_factory=dict)
     slots: list[Slot] = field(default_factory=list)
+    focus_screen: ScreenResult | None = None
+    focus_metric: str | None = None
 
 
 def _metric_names(policy: PersonaPolicy, exclude: set[str]) -> list[str]:
@@ -114,16 +122,48 @@ async def _screen_first_plan(client: AgentMcpClient, policy: PersonaPolicy, sect
     return bundle
 
 
-async def run_sector_wide(client: AgentMcpClient, policy: PersonaPolicy, sector: Sector, companies: list[CompanyRow]) -> RetrievalBundle:
+async def run_sector_wide(
+    client: AgentMcpClient,
+    policy: PersonaPolicy,
+    sector: Sector,
+    companies: list[CompanyRow],
+    focus: list[tuple[str, Direction]],
+) -> RetrievalBundle:
     if policy.tool_plan[1] == "get_financials":
-        return await _pe_style_plan(client, policy, sector, companies)
-    return await _screen_first_plan(client, policy, sector)
+        bundle = await _pe_style_plan(client, policy, sector, companies)
+    else:
+        bundle = await _screen_first_plan(client, policy, sector)
+    if not focus:
+        return bundle
+
+    metric, direction = focus[0]
+    persona_screens = {policy.screen_metric: bundle.primary_screen}
+    if policy.secondary_screen_metric:
+        persona_screens[policy.secondary_screen_metric] = bundle.secondary_screen
+    if metric in persona_screens:
+        screen = persona_screens[metric]  # the persona already ranks what was asked about
+    else:
+        screen = await client.run_sector_screen(sector, metric, direction, policy.result_limit)
+        bundle.focus_screen, bundle.focus_metric = screen, metric
+    if screen is not None:
+        seen = {(slot.company, slot.field) for slot in bundle.slots}
+        focus_slots = _slots_from_screen(screen, metric, required=True)
+        bundle.slots.extend(slot for slot in focus_slots if (slot.company, slot.field) not in seen)
+    return bundle
 
 
-async def run_company_focus(client: AgentMcpClient, policy: PersonaPolicy, tickers: list[str], query: str) -> RetrievalBundle:
+async def run_company_focus(
+    client: AgentMcpClient,
+    policy: PersonaPolicy,
+    tickers: list[str],
+    query: str,
+    focus: list[tuple[str, Direction]],
+) -> RetrievalBundle:
     bundle = RetrievalBundle()
-    required = {m.metric for m in policy.metrics if m.required}
-    metrics = _metric_names(policy, exclude=set())
+    focus_metrics = [metric for metric, _ in focus]
+    required = {m.metric for m in policy.metrics if m.required} | set(focus_metrics)
+    persona_metrics = _metric_names(policy, exclude=set())
+    metrics = persona_metrics + [metric for metric in focus_metrics if metric not in persona_metrics]
     for ticker in tickers:
         rows = await client.get_financials(ticker, metrics)
         if rows:

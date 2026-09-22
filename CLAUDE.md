@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (92 tests, ~27s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (105 tests, ~30s, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -84,6 +84,9 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
 - `agent/retrieval.py` has two plan shapes selected by `policy.tool_plan[1]`: `_pe_style_plan`
   (financials across the whole cohort, then screen, then hiring on the shortlist) and
   `_screen_first_plan` (screen, enrich ranked names, optional second screen, optional hiring).
+  `agent/focus.py` then adds the question's focus from a closed keyword list: extra metrics on
+  the company-focus path, one extra screen on the sector path unless the persona already screens
+  that metric. Focus metrics are required confidence slots. Never let a model choose metrics.
 - `agent/grounding.py` produces the deterministic answer: every sentence is a template filled from
   an `EvidenceItem` a tool returned this turn. It always runs -- it yields the evidence set, and it
   is the answer whenever synthesis is unavailable or rejected.

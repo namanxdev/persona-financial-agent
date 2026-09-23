@@ -57,6 +57,12 @@ ACRONYM_STOPWORDS = frozenset({
     "MF", "PE", "WACC", "DCF", "TAM", "CAPEX", "OPEX", "COGS", "SGA", "AI",
     "OK", "AND", "THE", "BUT", "NOT", "ALL", "NEW", "FOR", "PER", "VS", "IN",
     "ON", "AT", "TO", "OF", "IS",
+    *"EBITDAR EBT NOPAT PEG PB NPV MOIC CAPM TSR ROCE ROTE NIM FCFF FCFE OCF DPS BVPS SOTP".split(),
+    *"NWC CCC DSO DIO DPO PPE SBC NOL RSU AR AP SG IFRS FASB SOX QTD MTD CY LTV".split(),
+    *"IG HY CDS DSCR FFO AFFO SOFR YTM ABS MBS PPI PCE PMI FOMC FED ECB IMF OPEC WTI VIX".split(),
+    *"ETF REIT ADR SPAC NYSE FX EUR UK EU EM AUM ARR MRR NRR RPO CAC ARPU DAU MAU SAAS API".split(),
+    *"GPU CPU ML LLM IOT IT SMB OEM SSS AOV GMV SKU POS DTC BOPIS BNPL CPG NPS CTO CIO".split(),
+    *"LTL FTL TL TMS WMS TEU OTIF OR CDL USPS FOB DC JIT BUY SELL HOLD".split(),
 })
 # Ordinary finance words people capitalise mid-sentence ("the Fed", "Q2 Results",
 # "AI Capex"). A proper-noun phrase made only of these is not a company name.
@@ -65,6 +71,10 @@ _FINANCE_VOCABULARY = frozenset({
     "wall", "street", "market", "markets", "guidance", "outlook", "revenue", "margins",
     "margin", "growth", "inflation", "tariff", "tariffs", "recession", "rates", "sector",
     "industry", "quarter", "valuation", "dividend", "dividends", "debt", "cash", "strong", "weak",
+    *"operating gross net free flow income profit return assets capital working yield ratio interest".split(),
+    *"leverage value price pricing sales share shares buyback cost costs expense liquidity multiple".split(),
+    *"multiples risk exposure headcount hiring freight volume volumes shipping capacity backlog".split(),
+    *"inventory demand supply chain same store comparable cloud software consensus peers china mexico".split(),
 })
 # Aliases that are also ordinary finance vocabulary. A mention of one of these
 # only counts as a company reference when it is capitalised as a proper noun.

@@ -46,7 +46,7 @@ flowchart TD
     NAMED -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
     NAMED -->|"yes"| INDB{"Company in the<br/>sector catalog?"}
     INDB -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
-    INDB -->|"no"| REF["Refusal: I don't have X in this dataset<br/>no retrieval, confidence low"]
+    INDB -->|"no"| REF["REFUSE immediately<br/>I don't have X in this dataset<br/>no retrieval, confidence low"]
     CF --> CLOSE["MCP session closes"]
     SW --> CLOSE
     CLOSE --> FR["choose_framing<br/>one stance word; neutral when keyless"]
@@ -59,7 +59,7 @@ flowchart TD
     DNAMED -->|"no"| KEEP["Keep the deterministic answer"]
     DNAMED -->|"yes"| DINDB{"Company in the<br/>sector catalog?"}
     DINDB -->|"yes"| KEEP
-    DINDB -->|"no"| REF
+    DINDB -->|"no"| REF2["REFUSE<br/>same refusal template"]
     MODEL --> CONF
     KEEP --> CONF
     CONF --> RESP["QueryResponse<br/>answer, evidence with source_url + as_of_date,<br/>confidence, tools_called"]

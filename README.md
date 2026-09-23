@@ -38,15 +38,15 @@ company name and passes through.
 
 ```mermaid
 flowchart TD
-    Q["Question + persona + sector<br/>Streamlit UI or POST /query"] --> MCP["Start MCP server subprocess"]
-    MCP -->|"server dead"| ERR["Error: 502 in the API, st.error in the UI"]
-    MCP --> LC["list_companies(sector)<br/>load the sector catalog"]
+    Q["Question + persona + sector<br/>Streamlit UI or POST /query"] --> MCP{"MCP server<br/>subprocess started?"}
+    MCP -->|"no"| ERR["Error: 502 in the API, st.error in the UI"]
+    MCP -->|"yes"| LC["list_companies(sector)<br/>load the sector catalog"]
     LC --> RES["resolve_mentions<br/>tickers, aliases, proper nouns;<br/>finance vocabulary is skipped"]
-    RES --> OUT{"Names a company<br/>not in the catalog?"}
-    OUT -->|"yes"| REF["Refusal: I don't have X in this dataset<br/>no retrieval, confidence low"]
-    OUT -->|"no"| IN{"Names a covered<br/>company?"}
-    IN -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
-    IN -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
+    RES --> NAMED{"Company name<br/>in the query?"}
+    NAMED -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
+    NAMED -->|"yes"| INDB{"Company in the<br/>sector catalog?"}
+    INDB -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
+    INDB -->|"no"| REF["Refusal: I don't have X in this dataset<br/>no retrieval, confidence low"]
     CF --> CLOSE["MCP session closes"]
     SW --> CLOSE
     CLOSE --> FR["choose_framing<br/>one stance word; neutral when keyless"]
@@ -55,9 +55,11 @@ flowchart TD
     SYN -->|"no"| CONF["compute_confidence<br/>coverage + freshness"]
     SYN -->|"yes"| VAL{"evidence_guard.validate<br/>passes the draft?"}
     VAL -->|"yes"| MODEL["Use the model's thesis"]
-    VAL -->|"no"| NAMED{"Draft names an uncovered<br/>company the question named?"}
-    NAMED -->|"yes"| REF
-    NAMED -->|"no"| KEEP["Keep the deterministic answer"]
+    VAL -->|"no"| DNAMED{"Draft names a company<br/>the query also named?"}
+    DNAMED -->|"no"| KEEP["Keep the deterministic answer"]
+    DNAMED -->|"yes"| DINDB{"Company in the<br/>sector catalog?"}
+    DINDB -->|"yes"| KEEP
+    DINDB -->|"no"| REF
     MODEL --> CONF
     KEEP --> CONF
     CONF --> RESP["QueryResponse<br/>answer, evidence with source_url + as_of_date,<br/>confidence, tools_called"]

@@ -14,9 +14,9 @@ not a re-export of the server's classes.
 """
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, StringConstraints
 
 Sector = Literal["tech", "retail", "logistics"]
 Direction = Literal["asc", "desc"]
@@ -86,7 +86,9 @@ class ScreenResult(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    query: str
+    # Non-empty after stripping: a blank question used to run a full sector screen.
+    # Capped because the text goes verbatim into both model prompts.
+    query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
     persona: PersonaName
     sector: Sector
 

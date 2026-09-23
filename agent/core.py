@@ -6,9 +6,11 @@ fresh stdio MCP session; there is no caching and no fallback to model
 knowledge if the server or a tool call fails.
 """
 
+import asyncio
 from datetime import date
 
 from agent.confidence import compute_confidence
+from agent.focus import question_focus
 from agent.grounding import compose_answer, out_of_scope_answer
 from agent.llm import choose_framing
 from agent.mcp_client import AgentMcpClient
@@ -36,12 +38,18 @@ async def answer_query(request: QueryRequest) -> QueryResponse:
                 tools_called=list(client.tool_calls),
             )
 
+        # The persona sets the lens; the question adds a focus from a closed list.
+        focus = question_focus(request.query)
         if scope.matched:
-            bundle = await run_company_focus(client, policy, sorted(scope.matched), request.query)
+            bundle = await run_company_focus(client, policy, sorted(scope.matched), request.query, focus)
         else:
-            bundle = await run_sector_wide(client, policy, request.sector, companies)
+            bundle = await run_sector_wide(client, policy, request.sector, companies, focus)
+        tools_called = list(client.tool_calls)
 
-        return _build_response(request, policy, bundle, client.tool_calls, companies)
+    # Retrieval is finished, so the MCP subprocess is already closed before either
+    # model call starts. The provider clients are synchronous: run on the event loop
+    # they would stall every other in-flight request, so they get a worker thread.
+    return await asyncio.to_thread(_build_response, request, policy, bundle, tools_called, companies)
 
 
 def _query_named_out_of_scope(names: tuple[str, ...], query: str) -> list[str]:
@@ -73,8 +81,10 @@ def _build_response(
     tools_called: list[str],
     catalog: list[CompanyRow],
 ) -> QueryResponse:
-    signal_values = [float(slot.value) for slot in bundle.slots if isinstance(slot.value, (int, float))]
-    framing = choose_framing(request.persona, request.sector, request.query, signal_values)
+    # Labeled, so a model judging the stance knows which company and metric each
+    # figure belongs to -- a bare list of mixed-unit floats cannot be read at all.
+    signals = [f"{slot.company} {slot.field}={slot.value}" for slot in bundle.slots if slot.value is not None]
+    framing = choose_framing(request.persona, request.sector, request.query, signals)
     answer, evidence = compose_answer(
         request.persona,
         request.sector,
@@ -84,6 +94,8 @@ def _build_response(
         bundle.secondary_screen,
         bundle.financials,
         bundle.hiring,
+        bundle.focus_screen,
+        bundle.focus_metric,
     )
     # Deterministic composition always runs first: it produces the evidence set and
     # the answer that ships whenever synthesis is unavailable or fails validation.

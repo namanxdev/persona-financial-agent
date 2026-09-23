@@ -40,13 +40,16 @@ def metric_label(metric: str) -> str:
 def format_value(value: float | int | str | None, unit: str | None, metric: str) -> str:
     if value is None:
         return "no data"
+    # Dollar figures put the sign before the currency symbol ("-$24.5B", not
+    # "$-24.5B"), the way a reader -- and a model quoting it -- writes it.
+    sign = "-" if isinstance(value, (int, float)) and value < 0 else ""
     if unit == "USD" and isinstance(value, (int, float)):
         magnitude = abs(value)
         if magnitude >= 1e9:
-            return f"${value / 1e9:.1f}B"
+            return f"{sign}${magnitude / 1e9:.1f}B"
         if magnitude >= 1e6:
-            return f"${value / 1e6:.1f}M"
-        return f"${value:,.0f}"
+            return f"{sign}${magnitude / 1e6:.1f}M"
+        return f"{sign}${magnitude:,.0f}"
     if unit == "ratio" and isinstance(value, (int, float)):
         if metric in _PERCENT_METRICS:
             return f"{value * 100:.1f}%"
@@ -54,7 +57,7 @@ def format_value(value: float | int | str | None, unit: str | None, metric: str)
             return f"{value:.2f}x"
         return f"{value:.3f}"
     if unit == "USD/shares" and isinstance(value, (int, float)):
-        return f"${value:.2f}"
+        return f"{sign}${abs(value):.2f}"
     if unit == "employees" and isinstance(value, (int, float)):
         return f"{int(value):,} employees"
     return str(value)

@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (61 tests, ~24s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (141 tests, ~50s, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -66,7 +66,9 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
              -> list_companies(sector)              # always the first tool call
              -> scope.resolve_mentions              # unmatched company -> refusal, return early
              -> retrieval.run_company_focus | run_sector_wide   # persona-driven tool plan
-             -> llm.choose_framing                  # stance token only, never sees values
+             -- MCP session closes; the rest runs in a worker thread (sync provider calls) --
+             -> llm.choose_framing                  # sees labeled values, returns one stance
+                                                    # word; keyless it is always "neutral"
              -> grounding.compose_answer            # templates filled from EvidenceItem rows
              -> synthesis.synthesize                # model writes the thesis; evidence_guard
                                                     # validates it or it is discarded
@@ -82,17 +84,21 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
 - `agent/retrieval.py` has two plan shapes selected by `policy.tool_plan[1]`: `_pe_style_plan`
   (financials across the whole cohort, then screen, then hiring on the shortlist) and
   `_screen_first_plan` (screen, enrich ranked names, optional second screen, optional hiring).
+  `agent/focus.py` then adds the question's focus from a closed keyword list: extra metrics on
+  the company-focus path, one extra screen on the sector path unless the persona already screens
+  that metric. Focus metrics are required confidence slots. Never let a model choose metrics.
 - `agent/grounding.py` produces the deterministic answer: every sentence is a template filled from
   an `EvidenceItem` a tool returned this turn. It always runs -- it yields the evidence set, and it
   is the answer whenever synthesis is unavailable or rejected.
 - `agent/synthesis.py` + `agent/evidence_guard.py` are the LLM answer path. The model sees the
   evidence as *display strings only* (never raw floats) and returns JSON: thesis,
   supporting_points, risks, limitations, evidence_ids. `evidence_guard.validate` then rejects
-  unretrieved evidence ids, tickers never retrieved, numbers absent from the display strings
-  (invented *or* computed), and figures attached to the wrong company in a single-company
-  sentence, and any company name absent from the sector catalog. Rejection falls back to
+  unretrieved evidence ids, tickers never retrieved, figures absent from the display strings
+  as typed quantities (invented, computed, or with sign/magnitude/unit changed), dates no row
+  carries, figures attached to the wrong company in a single-company sentence (named by ticker
+  or by company name), and any company name absent from the sector catalog. Rejection falls back to
   `grounding.py`. The guarantee is the validator, not the prompt -- if you weaken `validate`, you
-  have weakened the whole design, so change it only alongside a test in `tests/test_synthesis.py`.
+  have weakened the whole design, so change it only alongside a test in `tests/test_evidence_guard.py`.
   `AGENT_SYNTHESIS=off` forces the deterministic path; `tests/conftest.py` sets it so the suite
   never calls a provider.
 - `agent/scope.py` owns `ACRONYM_STOPWORDS`, the one list of uppercase tokens that are vocabulary
@@ -129,7 +135,63 @@ balance-sheet instant, and a Yahoo point-in-time snapshot stay distinguishable.
   expectations and confidence tiers.
 - `evals/cases.py` reads expected values via a direct `sqlite3` query — a deliberately different code
   path from the agent's MCP retrieval, so the assertion is that two independent paths agree.
-- `OPENAI_API_KEY` is optional. Unset, `choose_framing` uses a deterministic rule and everything
-  still runs offline. `agent/config.py` loads `.env` on import; a real exported env var wins.
+- `OPENAI_API_KEY` is optional. Unset, `choose_framing` returns the `neutral` stance (averaging
+  mixed-unit values says nothing) and everything still runs offline. `agent/config.py` loads `.env` on import; a real exported env var wins.
 - Style: type hints everywhere, Pydantic for anything crossing a boundary, no bare `except`,
   comments explain *why*, no emoji.
+
+CLAUDE.md
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+1. Think Before Coding
+Don't assume. Don't hide confusion. Surface tradeoffs.
+
+Before implementing:
+
+State your assumptions explicitly. If uncertain, ask.
+If multiple interpretations exist, present them - don't pick silently.
+If a simpler approach exists, say so. Push back when warranted.
+If something is unclear, stop. Name what's confusing. Ask.
+2. Simplicity First
+Minimum code that solves the problem. Nothing speculative.
+
+No features beyond what was asked.
+No abstractions for single-use code.
+No "flexibility" or "configurability" that wasn't requested.
+No error handling for impossible scenarios.
+If you write 200 lines and it could be 50, rewrite it.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+3. Surgical Changes
+Touch only what you must. Clean up only your own mess.
+
+When editing existing code:
+
+Don't "improve" adjacent code, comments, or formatting.
+Don't refactor things that aren't broken.
+Match existing style, even if you'd do it differently.
+If you notice unrelated dead code, mention it - don't delete it.
+When your changes create orphans:
+
+Remove imports/variables/functions that YOUR changes made unused.
+Don't remove pre-existing dead code unless asked.
+The test: Every changed line should trace directly to the user's request.
+
+4. Goal-Driven Execution
+Define success criteria. Loop until verified.
+
+Transform tasks into verifiable goals:
+
+"Add validation" → "Write tests for invalid inputs, then make them pass"
+"Fix the bug" → "Write a test that reproduces it, then make it pass"
+"Refactor X" → "Ensure tests pass before and after"
+For multi-step tasks, state a brief plan:
+
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+These guidelines are working if: fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

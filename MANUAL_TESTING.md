@@ -31,7 +31,7 @@ committed, so there is nothing to build either.
 If you *do* want to exercise the live OpenAI path, put a key in `.env` (`cp .env.example .env`
 first). `agent/config.py` reads that file on import. You will see which path ran in the logs:
 `framing chosen via OpenAI (gpt-4o-mini): cautious` versus
-`framing chosen via deterministic fallback: cautious`.
+`framing chosen via deterministic fallback: neutral` (with no key the answer opens without claiming a stance).
 
 ## 1. The 30-second smoke test
 
@@ -43,7 +43,7 @@ uv run python evals/run_evals.py
 Expected, verified:
 
 ```
-61 passed, 2 warnings in 23.94s
+127 passed, 2 warnings in 42.06s
 ```
 
 ```
@@ -94,7 +94,7 @@ print('companies:', r.companies_referenced)
 Real output:
 
 ```
-From a deal/ops view of logistics: the retrieved data argues for caution. UPS's free cash flow
+From a deal/ops view of logistics: here is what the retrieved data shows. UPS's free cash flow
 (TTM) is $5.6B as of 2026-09-07. UPS's EV/EBITDA is 9.19x as of 2026-09-07. UPS's latest
 hiring/headcount signal: 460,000 employees as of 2026-09-07
 (https://finance.yahoo.com/quote/UPS/profile/).
@@ -175,7 +175,7 @@ Real response, answer field trimmed:
 
 ```json
 {
-  "answer": "From a deal/ops view of logistics: the retrieved data argues for caution. Pulls raw
+  "answer": "From a deal/ops view of logistics: here is what the retrieved data shows. Pulls raw
     cash-flow and multiple data across the whole sector first, then screens liabilities-to-equity
     ascending ... Ranked by liabilities/equity, #1: JBHT at 1.22x (as of 2025-12-31). Ranked by
     liabilities/equity, #2: CHRW at 1.74x (as of 2025-12-31). Excluded from the liabilities/equity
@@ -238,10 +238,12 @@ PE persona pulls the whole cohort first, its company set differs by construction
 mutual-fund-vs-equity difference (CSCO against ADBE/IBM) is the genuinely data-driven one.
 
 **Every number is grounded.** Take any figure out of the answer prose and find it in the evidence
-table. There should be no orphans: prose is assembled from evidence rows by templates in
-`agent/grounding.py`, and the model never sees a value. To convince yourself the model cannot
-invent numbers, run the same query with and without `OPENAI_API_KEY` -- the opening framing
-sentence may change, the figures cannot.
+table. There should be no orphans. Keyless, prose is assembled from evidence rows by templates in
+`agent/grounding.py`. With a key, the model does see the evidence -- as rendered display strings
+(`45.1%`, `$5.7B`), never raw floats -- and writes the answer, but `agent/evidence_guard.py`
+rejects any figure not copied verbatim from those strings and the template answer ships instead.
+To convince yourself the model cannot invent numbers, run the same query with and without
+`OPENAI_API_KEY` -- the prose may change, the figures cannot.
 
 **Confidence is computed, not guessed.** The rule lives in `agent/confidence.py`: one slot per
 (company, required metric) plus one per requested hiring signal;
@@ -291,8 +293,8 @@ The design claim is that failures surface instead of quietly degrading into an a
 memory. Two ways to confirm.
 
 **Point the client at a database that does not exist.** The server process dies at startup and the
-error propagates -- verified: the session raises `McpError: Connection closed` during initialize,
-before any tool call, and no answer is produced.
+error propagates -- verified: the handshake fails during initialize, before any tool call, and the
+client raises `McpToolError: MCP server unavailable: Connection closed`. No answer is produced.
 
 ```bash
 uv run python -c "

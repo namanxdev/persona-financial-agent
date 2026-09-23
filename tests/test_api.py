@@ -1,8 +1,10 @@
 """API tests: POST /query delegates to answer_query and nothing else."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from server_launch import server_command
 
 client = TestClient(app)
 
@@ -57,3 +59,24 @@ def test_query_tools_called_preserves_repeated_calls() -> None:
     })
     body = response.json()
     assert body["tools_called"].count("get_financials") > 1
+
+
+def test_query_returns_502_when_the_mcp_server_dies_during_the_handshake(monkeypatch, tmp_path) -> None:
+    """A missing database kills the server before initialize() completes; that must
+    surface as the documented 502, not an unhandled 500."""
+    monkeypatch.setattr(
+        "agent.mcp_client.server_command", lambda _: server_command(tmp_path / "missing.db")
+    )
+    response = client.post("/query", json={
+        "query": "Which companies here look attractive?", "persona": "equity_analyst", "sector": "tech",
+    })
+    assert response.status_code == 502
+    assert "MCP" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("query", ["", "   ", "x" * 1001])
+def test_query_rejects_empty_or_oversized_questions(query: str) -> None:
+    """An empty question used to run a full sector screen; an unbounded one goes
+    straight into both model prompts."""
+    response = client.post("/query", json={"query": query, "persona": "equity_analyst", "sector": "tech"})
+    assert response.status_code == 422

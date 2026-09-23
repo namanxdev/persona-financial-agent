@@ -11,6 +11,11 @@ against a small alias table for the 24-company universe, and treats anything
 proper-noun-shaped that doesn't match as an explicit out-of-scope mention. It
 is scoped to the *requested sector's* 8 companies, matching how the catalog is
 loaded (list_companies(sector) is always the first tool call).
+
+Known gap: a question written Entirely In Title Case still misfires, because
+any capitalised phrase outside the vocabulary list reads as a name. The real fix
+is to refuse only names that are real companies outside coverage (a server-side
+list such as SEC's company_tickers.json), not to grow the vocabulary list.
 """
 
 import re
@@ -48,14 +53,32 @@ _DOMAIN_STOPWORDS = {
 ACRONYM_STOPWORDS = frozenset({
     "EBITDA", "EBIT", "EBITA", "ROI", "ROIC", "ROE", "ROA", "YOY", "QOQ", "YTD",
     "TTM", "FY", "CEO", "CFO", "COO", "GDP", "CPI", "SEC", "IPO", "ESG", "EPS",
-    "EV", "FCF", "PS", "USD", "USA", "US", "GAAP", "LBO", "IRR", "NAV", "KPI",
+    "EV", "FCF", "PS", "USD", "USA", "US", "GAAP", "LBO", "IRR", "NAV", "KPI", "LTM", "NTM", "CAGR",
     "MF", "PE", "WACC", "DCF", "TAM", "CAPEX", "OPEX", "COGS", "SGA", "AI",
     "OK", "AND", "THE", "BUT", "NOT", "ALL", "NEW", "FOR", "PER", "VS", "IN",
     "ON", "AT", "TO", "OF", "IS",
+    *"EBITDAR EBT NOPAT PEG PB NPV MOIC CAPM TSR ROCE ROTE NIM FCFF FCFE OCF DPS BVPS SOTP".split(),
+    *"NWC CCC DSO DIO DPO PPE SBC NOL RSU AR AP SG IFRS FASB SOX QTD MTD CY LTV".split(),
+    *"IG HY CDS DSCR FFO AFFO SOFR YTM ABS MBS PPI PCE PMI FOMC FED ECB IMF OPEC WTI VIX".split(),
+    *"ETF REIT ADR SPAC NYSE FX EUR UK EU EM AUM ARR MRR NRR RPO CAC ARPU DAU MAU SAAS API".split(),
+    *"GPU CPU ML LLM IOT IT SMB OEM SSS AOV GMV SKU POS DTC BOPIS BNPL CPG NPS CTO CIO".split(),
+    *"LTL FTL TL TMS WMS TEU OTIF OR CDL USPS FOB DC JIT BUY SELL HOLD".split(),
+})
+# Ordinary finance words people capitalise mid-sentence ("the Fed", "Q2 Results",
+# "AI Capex"). A proper-noun phrase made only of these is not a company name.
+_FINANCE_VOCABULARY = frozenset({
+    "results", "earnings", "fed", "capex", "opex", "economy", "fund", "funds", "mutual",
+    "wall", "street", "market", "markets", "guidance", "outlook", "revenue", "margins",
+    "margin", "growth", "inflation", "tariff", "tariffs", "recession", "rates", "sector",
+    "industry", "quarter", "valuation", "dividend", "dividends", "debt", "cash", "strong", "weak",
+    *"operating gross net free flow income profit return assets capital working yield ratio interest".split(),
+    *"leverage value price pricing sales share shares buyback cost costs expense liquidity multiple".split(),
+    *"multiples risk exposure headcount hiring freight volume volumes shipping capacity backlog".split(),
+    *"inventory demand supply chain same store comparable cloud software consensus peers china mexico".split(),
 })
 # Aliases that are also ordinary finance vocabulary. A mention of one of these
 # only counts as a company reference when it is capitalised as a proper noun.
-_CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple"})
+_CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple", "ups"})
 
 _PROPER_NOUN_RE = re.compile(r"[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+){0,2}")
 _TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
@@ -72,6 +95,14 @@ def _strip_possessive(phrase: str) -> str:
     return phrase[:-2] if phrase.endswith("'s") else phrase
 
 
+def _is_vocabulary(word: str) -> bool:
+    bare = _strip_possessive(word).lower()
+    return (
+        bare in _FINANCE_VOCABULARY or bare in _QUESTION_STOPWORDS
+        or bare in _DOMAIN_STOPWORDS or bare.upper() in ACRONYM_STOPWORDS
+    )
+
+
 def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
     """Lowercase alias/name/ticker -> ticker, scoped to this sector's catalog."""
     index: dict[str, str] = {}
@@ -82,8 +113,8 @@ def _alias_index(catalog: list[CompanyRow]) -> dict[str, str]:
     return index
 
 
-def _alias_mentioned(alias: str, query: str, query_lower: str) -> bool:
-    """Whether `alias` appears in `query` as an actual company mention.
+def _alias_spans(alias: str, query: str) -> list[tuple[int, int]]:
+    """Where `alias` appears in `query` as an actual company mention.
 
     Two distinct false-positive classes have to be excluded, and they need
     different treatment:
@@ -97,35 +128,55 @@ def _alias_mentioned(alias: str, query: str, query_lower: str) -> bool:
        capitalised it. "What about Target?" resolves; "the target market" does
        not. Unambiguous aliases ("costco", "walmart") stay case-insensitive so
        a lowercase query still works.
+
+    Spans are offsets into `query` itself (case-insensitive matching runs on the
+    original string, not a lowercased copy), so the caller can blank them out.
     """
     if alias in _CASE_SENSITIVE_ALIASES:
         # Look for the proper-noun spelling in the untouched query: "Target",
         # "Best Buy", "META". The lowercase form is ordinary vocabulary.
-        return any(
-            re.search(rf"(?<!\w){re.escape(variant)}(?!\w)", query)
-            for variant in (alias.title(), alias.upper())
-        )
-    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", query_lower) is not None
+        variants = [re.compile(rf"(?<!\w){re.escape(v)}(?!\w)") for v in (alias.title(), alias.upper())]
+    else:
+        variants = [re.compile(rf"(?<!\w){re.escape(alias)}(?!\w)", re.IGNORECASE)]
+    return [match.span() for pattern in variants for match in pattern.finditer(query)]
+
+
+def _mask(text: str, spans: list[tuple[int, int]]) -> str:
+    """Blank out resolved mentions, keeping every other offset where it was.
+
+    Without this, a later scan re-reads the leftovers of a name it already
+    resolved -- "Lowe's" matched LOW, then "Lowe" came back as an unknown
+    company and the whole turn was refused.
+    """
+    chars = list(text)
+    for start, end in spans:
+        chars[start:end] = " " * (end - start)
+    return "".join(chars)
 
 
 def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
     by_ticker = {company.ticker: company for company in catalog}
     alias_index = _alias_index(catalog)
-    query_lower = query.lower()
     result = ScopeResult()
 
+    resolved: list[tuple[int, int]] = []
     for alias, ticker in alias_index.items():
-        if len(alias) >= 2 and _alias_mentioned(alias, query, query_lower):
+        spans = _alias_spans(alias, query) if len(alias) >= 2 else []
+        if spans:
             result.matched[ticker] = by_ticker[ticker]
+            resolved.extend(spans)
+    query = _mask(query, resolved)
 
     for ticker_match in _TICKER_RE.finditer(query):
         token = ticker_match.group()
         if token in by_ticker:
             result.matched[token] = by_ticker[token]
+            resolved.append(ticker_match.span())
         elif token in ACRONYM_STOPWORDS:
             continue  # vocabulary, not a company -- checked after the catalog, not before
         elif token not in result.matched:
             result.unmatched.append(token)
+    query = _mask(query, resolved)
 
     for phrase_match in _PROPER_NOUN_RE.finditer(query):
         phrase = _strip_possessive(phrase_match.group())
@@ -137,10 +188,8 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
             phrase = _strip_possessive(tail)
             if not phrase:
                 continue
-        if phrase.upper() in ACRONYM_STOPWORDS:
-            continue  # "the TTM margin" is vocabulary, not a company
-        if phrase.lower() in _QUESTION_STOPWORDS or phrase.lower() in _DOMAIN_STOPWORDS:
-            continue
+        if all(_is_vocabulary(word) for word in phrase.split()):
+            continue  # "the TTM margin", "the Fed", "AI Capex" are vocabulary, not companies
         if any(word.lower() in _QUESTION_STOPWORDS for word in phrase.split()):
             continue
         if phrase.lower() in alias_index or phrase in by_ticker:

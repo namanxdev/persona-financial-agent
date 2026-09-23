@@ -13,6 +13,7 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 
 ## Contents
 
+- [How a question is answered](#how-a-question-is-answered)
 - [Setup](#setup)
 - [Running the interfaces](#running-the-interfaces)
 - [Deployment](#deployment)
@@ -26,6 +27,41 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 - [Eval results](#eval-results)
 - [What's covered by the data](#whats-covered-by-the-data)
 - [One thing I'd improve with more time](#one-thing-id-improve-with-more-time)
+
+## How a question is answered
+
+Both interfaces call the same function, `agent.core.answer_query`. The sector catalog is loaded
+first, and any company the question names is checked against it before anything else is
+retrieved: a company outside the catalog is refused straight away, with no retrieval and no
+fallback to model knowledge. Finance vocabulary (`LTL`, `EBITDA`, "Free Cash Flow") is not a
+company name and passes through.
+
+```mermaid
+flowchart TD
+    Q["Question + persona + sector<br/>Streamlit UI or POST /query"] --> MCP["Start MCP server subprocess"]
+    MCP -->|"server dead"| ERR["Error: 502 in the API, st.error in the UI"]
+    MCP --> LC["list_companies(sector)<br/>load the sector catalog"]
+    LC --> RES["resolve_mentions<br/>tickers, aliases, proper nouns;<br/>finance vocabulary is skipped"]
+    RES --> OUT{"Names a company<br/>not in the catalog?"}
+    OUT -->|"yes"| REF["Refusal: I don't have X in this dataset<br/>no retrieval, confidence low"]
+    OUT -->|"no"| IN{"Names a covered<br/>company?"}
+    IN -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
+    IN -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
+    CF --> CLOSE["MCP session closes"]
+    SW --> CLOSE
+    CLOSE --> FR["choose_framing<br/>one stance word; neutral when keyless"]
+    FR --> DET["compose_answer<br/>deterministic answer from evidence rows"]
+    DET --> SYN{"Model key set and<br/>synthesis on?"}
+    SYN -->|"no"| CONF["compute_confidence<br/>coverage + freshness"]
+    SYN -->|"yes"| VAL{"evidence_guard.validate<br/>passes the draft?"}
+    VAL -->|"yes"| MODEL["Use the model's thesis"]
+    VAL -->|"no"| NAMED{"Draft names an uncovered<br/>company the question named?"}
+    NAMED -->|"yes"| REF
+    NAMED -->|"no"| KEEP["Keep the deterministic answer"]
+    MODEL --> CONF
+    KEEP --> CONF
+    CONF --> RESP["QueryResponse<br/>answer, evidence with source_url + as_of_date,<br/>confidence, tools_called"]
+```
 
 ## Setup
 
@@ -71,6 +107,19 @@ retrieval rather than tone is the one thing this project most needs to demonstra
 paragraphs of prose are a poor way to show it -- three tool traces next to each other are not.
 The view states plainly whether all three sequences and all three company sets actually differ
 for the question asked, including when they do not.
+
+**Question focus.** The persona sets the lens; the question adds a focus from a closed list.
+`agent/focus.py` maps fixed keywords to real columns and a default direction -- debt/borrowing to
+`total_debt` ascending, leverage/balance sheet to `liabilities_to_equity` ascending, growth to
+`revenue_growth_yoy`, margin/profitability to `operating_margin_ttm`, valuation/cheap/P/E to
+`trailing_pe` ascending, cash flow/FCF to `free_cash_flow_ttm` -- and a nearby "least", "lowest",
+"most" or "highest" overrides the direction. A question naming companies fetches the focus
+metrics alongside the persona's; a sector question runs one extra `run_sector_screen` on the first
+focus metric, unless the persona already screens it. No model picks metrics, and focus metrics
+count as required confidence slots, so missing data for exactly what was asked lowers confidence.
+The divergence questions carry no focus, so the three persona plans run unchanged for them. Asked
+"Which logistics company carries the least debt?", the mutual fund persona now answers with a
+`total_debt` ranking first, then its usual growth screen.
 
 ### FastAPI (programmatic)
 
@@ -215,7 +264,7 @@ Run the same request with no `OPENAI_API_KEY` and the `evidence`, `confidence`, 
 fields come back identical, `synthesis` is `null`, and `answer` is the deterministic composition:
 
 ```
-From a deal/ops view of logistics: the retrieved data argues for caution. FDX's free cash flow
+From a deal/ops view of logistics: here is what the retrieved data shows. FDX's free cash flow
 (TTM) is $5.7B as of 2026-09-07. FDX's EV/EBITDA is 8.92x as of 2026-09-07. FDX's latest
 hiring/headcount signal: 300,000 employees as of 2026-09-07
 (https://finance.yahoo.com/quote/FDX/profile/).
@@ -514,8 +563,9 @@ actually satisfy.
 | --- | --- |
 | Every cited `evidence_id` was retrieved this turn | A citation to a row no tool returned |
 | Every ticker-shaped token was retrieved this turn | "NVDA looks cheaper" when NVDA is not in the data |
-| Every number appears verbatim in a display value or `as_of_date` | An invented figure -- and equally a *computed* one, since an average or a delta is still a number no tool returned |
-| Per sentence: one named company means its figures must be that company's | A real number attached to the wrong company |
+| Every figure matches a display value as a typed quantity -- sign, currency, digits, suffix (`B`, `M`, `K`, `%`, `x`) -- read by the same pattern from both sides | An invented figure; equally a *computed* one, since an average or a delta is still a number no tool returned; and a real figure with its sign dropped (`$24.5B` for `-$24.5B`), its magnitude changed (`$24.5M`) or its unit swapped (`45.1x` for `45.1%`) |
+| Every `YYYY-MM-DD` date equals a retrieved `as_of_date` | A date no row carries |
+| Per sentence: one named company -- by ticker *or* by name -- means its figures must be that company's | A real number attached to the wrong company, including "Apple's operating margin is 45.1%" when 45.1% is MSFT's |
 | Every company named in the prose is in the sector catalog | An answer *about* Snowflake assembled from META and GOOGL figures |
 | Non-empty thesis, at least one supporting point, length proportionate to the evidence | Empty or runaway output |
 
@@ -526,7 +576,11 @@ never a wrong one. `agent/models.py:Synthesis` is `null` in the response wheneve
 
 **What this does not check.** Attribution is verified per sentence, so a figure moved to the
 wrong company is caught only when that sentence names exactly one company. A sentence naming two
-is checked against the full retrieved set. Company names are found by the same proper-noun
+is checked against the full retrieved set, and so is a pronoun hand-off ("Its margin is 45.1%"),
+because a sentence naming no company cannot be pinned to one. Numbers written as words ("roughly
+double") are not figures to the validator at all. The real fix for both is numbers by reference:
+the model writes `{evidence_id}` placeholders and the server renders the display string, so the
+model never types a figure. That is the next step, not something built here. Company names are found by the same proper-noun
 resolver a question goes through, which ignores a sentence-initial capital -- so a draft whose
 *only* mention of an uncovered company opens a sentence is missed. Closing that needs a
 dictionary of ordinary words: the version that tried refused a real question about "the margin
@@ -538,7 +592,7 @@ presented as findings.
 
 **Observed behaviour.** Every rejection seen on live `gpt-4o-mini` runs so far has been a bug in
 the validator rather than model misbehaviour, and each is now a regression test in
-`tests/test_synthesis.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
+`tests/test_evidence_guard.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
 discussing a company it had retrieved but not formally cited; `EV` treated as vocabulary by the
 guard but as a company by the resolver, because the two kept separate lists (now one list, in
 `agent/scope.py`); and a bullet opening with `Valuation` read as a company.
@@ -581,7 +635,7 @@ refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I 
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: `uv run python -m pytest -q` -> **61 passed**, same run, same day.
+Test suite alongside it: `uv run python -m pytest -q` -> **141 passed** (re-run 2026-09-23 after the finance-vocabulary fix; the eval table above came out identical).
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

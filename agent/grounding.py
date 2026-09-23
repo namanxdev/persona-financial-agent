@@ -24,6 +24,7 @@ _STANCE_QUALIFIER: dict[str, str] = {
     "constructive": "the retrieved data points to constructive momentum",
     "cautious": "the retrieved data argues for caution",
     "mixed": "the retrieved data is mixed",
+    "neutral": "here is what the retrieved data shows",
 }
 
 
@@ -100,11 +101,22 @@ def compose_answer(
     secondary_screen: ScreenResult | None,
     financials: dict[str, list[FinancialRow]],
     hiring: dict[str, list[HiringSignalRow]],
+    focus_screen: ScreenResult | None = None,
+    focus_metric: str | None = None,
 ) -> tuple[str, list[EvidenceItem]]:
     evidence: list[EvidenceItem] = []
     claims: list[str] = []
+    focus_claims: list[str] = []
     seen_fields: set[tuple[str, str]] = set()
 
+    # The screen the question asked for goes first: it is the direct answer, and
+    # the persona's own screens that follow are the lens it is read through.
+    if focus_screen is not None and focus_metric:
+        evidence.extend(_financial_evidence(focus_screen.rows))
+        seen_fields.update((row.ticker, row.metric) for row in focus_screen.rows)
+        label = metric_label(focus_metric)
+        focus_claims.append(f"The question asks about {label}, so the sector was screened on it too.")
+        focus_claims.extend(_screen_claims(focus_screen, focus_metric, "Ranked"))
     if primary_screen is not None:
         evidence.extend(_financial_evidence(primary_screen.rows))
         seen_fields.update((row.ticker, row.metric) for row in primary_screen.rows)
@@ -133,5 +145,6 @@ def compose_answer(
     # ranking_rationale describes the sector-screen methodology; only include it
     # when a screen actually ran this turn, so a single-company answer doesn't
     # describe a screening step that never happened.
-    parts = [lead] + ([policy.ranking_rationale] if primary_screen is not None else []) + claims
+    rationale = [policy.ranking_rationale] if primary_screen is not None else []
+    parts = [lead] + focus_claims + rationale + claims
     return " ".join(parts), evidence

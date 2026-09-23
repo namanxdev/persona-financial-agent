@@ -136,7 +136,10 @@ def main() -> None:
     persona = next(name for name, label in PERSONA_LABELS.items() if label == persona_label)
     sector = next(name for name, label in SECTOR_LABELS.items() if label == sector_label)
 
-    query = st.text_area("Question", placeholder="e.g. Which companies here look like attractive buyout targets?")
+    query = st.text_area(
+        "Question", max_chars=1000,  # the same cap QueryRequest enforces
+        placeholder="e.g. Which companies here look like attractive buyout targets?",
+    )
     ask_col, compare_col, _ = st.columns([1, 2, 4])
     asked = ask_col.button("Ask", type="primary")
     compared = compare_col.button("Compare all three personas")

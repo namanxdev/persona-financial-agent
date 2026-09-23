@@ -7,9 +7,10 @@ limitations, and the evidence_ids it relied on. None of it is trusted on return:
 
   * every evidence_id must be one actually retrieved this turn,
   * every ticker-shaped token in the prose must belong to a cited company,
-  * every numeric token in the prose must appear verbatim in a display value or
-    as_of_date the model was handed -- so it may quote a figure but cannot
-    compute, restate, round, or invent one.
+  * every figure in the prose must match a display value it was handed as a
+    typed quantity (sign, currency, digits, suffix), and every date an
+    as_of_date -- so it may quote a figure but cannot compute, restate, round,
+    re-sign, re-scale, or invent one.
 
 A candidate that fails any check is discarded and agent/grounding.py composes
 the answer instead -- the same path taken when no key is configured or the
@@ -49,16 +50,26 @@ class SynthesisResult:
     out_of_scope: tuple[str, ...] = ()
 
 
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
 def render(candidate: Synthesis) -> str:
-    """Flatten a validated synthesis into the `answer` string."""
-    parts = [candidate.thesis.strip()]
+    """Flatten a validated synthesis into the `answer` string.
+
+    List items are separated with "; " and each section closes with a period --
+    bullets are usually fragments without punctuation, and joined on bare spaces
+    they ran together into one unreadable sentence.
+    """
+    parts = [_sentence(candidate.thesis)]
     for label, items in (
         ("Supporting evidence", candidate.supporting_points),
         ("Risks", candidate.risks),
         ("Limitations", candidate.limitations),
     ):
         if items:
-            parts.append(f"{label}: " + " ".join(item.strip() for item in items))
+            parts.append(_sentence(f"{label}: " + "; ".join(item.strip().rstrip(".;") for item in items)))
     return " ".join(parts)
 
 
@@ -70,11 +81,17 @@ def build_prompt(
     payload: list[dict[str, str]],
     stance: str,
 ) -> str:
+    # "neutral" means no stance was actually judged upstream (the keyless rule
+    # never picks one), so the model forms its own rather than being told one.
+    stance_line = (
+        "Decide the overall stance yourself from the evidence." if stance == "neutral"
+        else f"Overall stance to take: {stance}."
+    )
     return (
         f"You are a {persona.replace('_', ' ')} answering a question about the {sector} sector.\n"
         f"Question: {query!r}\n"
         f"Your screening approach this turn: {policy.ranking_rationale}\n"
-        f"Overall stance to take: {stance}.\n\n"
+        f"{stance_line}\n\n"
         f"Evidence retrieved this turn (the ONLY facts you may use):\n{json.dumps(payload, indent=1)}\n\n"
         "Write an investment thesis grounded exclusively in that evidence. These rules are\n"
         "enforced by a validator that discards your whole answer on any violation:\n"
@@ -94,7 +111,9 @@ def build_prompt(
 def _complete_via_openai(api_key: str, prompt: str) -> str:
     from openai import OpenAI  # deferred import: keeps offline runs dependency-light
 
-    client = OpenAI(api_key=api_key)
+    # Bounded for the same reason as agent/llm.py: a slow draft falls back to the
+    # deterministic composer rather than holding the request open for minutes.
+    client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
     response = client.chat.completions.create(
         model=_MODEL,
         messages=[{"role": "user", "content": prompt}],

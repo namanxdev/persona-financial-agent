@@ -13,6 +13,7 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 
 ## Contents
 
+- [How a question is answered](#how-a-question-is-answered)
 - [Setup](#setup)
 - [Running the interfaces](#running-the-interfaces)
 - [Deployment](#deployment)
@@ -26,6 +27,41 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 - [Eval results](#eval-results)
 - [What's covered by the data](#whats-covered-by-the-data)
 - [One thing I'd improve with more time](#one-thing-id-improve-with-more-time)
+
+## How a question is answered
+
+Both interfaces call the same function, `agent.core.answer_query`. The sector catalog is loaded
+first, and any company the question names is checked against it before anything else is
+retrieved: a company outside the catalog is refused straight away, with no retrieval and no
+fallback to model knowledge. Finance vocabulary (`LTL`, `EBITDA`, "Free Cash Flow") is not a
+company name and passes through.
+
+```mermaid
+flowchart TD
+    Q["Question + persona + sector<br/>Streamlit UI or POST /query"] --> MCP["Start MCP server subprocess"]
+    MCP -->|"server dead"| ERR["Error: 502 in the API, st.error in the UI"]
+    MCP --> LC["list_companies(sector)<br/>load the sector catalog"]
+    LC --> RES["resolve_mentions<br/>tickers, aliases, proper nouns;<br/>finance vocabulary is skipped"]
+    RES --> OUT{"Names a company<br/>not in the catalog?"}
+    OUT -->|"yes"| REF["Refusal: I don't have X in this dataset<br/>no retrieval, confidence low"]
+    OUT -->|"no"| IN{"Names a covered<br/>company?"}
+    IN -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
+    IN -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
+    CF --> CLOSE["MCP session closes"]
+    SW --> CLOSE
+    CLOSE --> FR["choose_framing<br/>one stance word; neutral when keyless"]
+    FR --> DET["compose_answer<br/>deterministic answer from evidence rows"]
+    DET --> SYN{"Model key set and<br/>synthesis on?"}
+    SYN -->|"no"| CONF["compute_confidence<br/>coverage + freshness"]
+    SYN -->|"yes"| VAL{"evidence_guard.validate<br/>passes the draft?"}
+    VAL -->|"yes"| MODEL["Use the model's thesis"]
+    VAL -->|"no"| NAMED{"Draft names an uncovered<br/>company the question named?"}
+    NAMED -->|"yes"| REF
+    NAMED -->|"no"| KEEP["Keep the deterministic answer"]
+    MODEL --> CONF
+    KEEP --> CONF
+    CONF --> RESP["QueryResponse<br/>answer, evidence with source_url + as_of_date,<br/>confidence, tools_called"]
+```
 
 ## Setup
 
@@ -599,7 +635,7 @@ refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I 
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: `uv run python -m pytest -q` -> **127 passed** (re-run 2026-09-22 after the post-review fixes; the eval table above came out identical).
+Test suite alongside it: `uv run python -m pytest -q` -> **141 passed** (re-run 2026-09-23 after the finance-vocabulary fix; the eval table above came out identical).
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

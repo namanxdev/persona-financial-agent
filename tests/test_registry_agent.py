@@ -65,3 +65,23 @@ def test_model_draft_uses_a_fresh_registry_session_and_records_the_call(monkeypa
     assert response.confidence == "low"
     assert "Snowflake" in response.answer
     assert response.tools_called[-1] == "lookup_companies"
+    assert response.tools_called.count("lookup_companies") == 1
+
+
+@pytest.mark.parametrize(("sector", "query", "refused"), [
+    ("tech", "What will United States tariffs do to margins?", False),
+    ("retail", "Is Main Street spending holding up?", False),
+    ("logistics", "How is Carrier demand trending?", False),
+    ("tech", "What about United States?", False),
+    ("retail", "What about Main Street?", True),
+    ("logistics", "What about Carrier?", True),
+    ("retail", "What about Main Street Capital?", True),
+    ("logistics", "Compare UPS\nand Old\nDominion", True),
+    ("logistics", "How is " + "A" * 80 + " demand trending?", False),
+])
+def test_partial_names_and_tool_input_shape_do_not_break_questions(sector: str, query: str, refused: bool) -> None:
+    response = asyncio.run(answer_query(QueryRequest(query=query, persona="pe_analyst", sector=sector)))
+    if refused:
+        assert response.evidence == [] and response.answer.startswith("I don't have")
+    else:
+        assert response.evidence and not response.answer.startswith("I don't have")

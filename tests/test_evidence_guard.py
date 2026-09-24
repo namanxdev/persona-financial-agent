@@ -72,6 +72,14 @@ def test_registry_guard_rejects_confirmed_outside_company() -> None:
     assert reason is not None and "outside the sector catalog" in reason
 
 
+def test_draft_rejects_short_unretrieved_ticker_but_allows_user_jargon() -> None:
+    foreign = candidate(supporting_points=["KNX operating margin (TTM) is 45.1%."])
+    reason = validate(foreign, evidence(), catalog(), listed_lookup, question="How are margins?")
+    assert reason is not None and "outside the sector catalog" in reason
+    jargon = candidate(risks=["AI capex may rise."])
+    assert validate(jargon, evidence(), catalog(), listed_lookup, question="How exposed is the sector to AI capex?") is None
+
+
 def test_registry_guard_fails_closed_when_lookup_raises() -> None:
     def unavailable(names: list[str], tickers: list[str]) -> list:
         raise RuntimeError("registry unavailable")

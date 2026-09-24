@@ -27,8 +27,8 @@ import os
 from dataclasses import dataclass
 from typing import Callable
 
-from agent.company_guard import Lookup
-from agent.evidence_guard import evidence_payload, out_of_scope_mentions, validate
+from agent.company_guard import Lookup, company_violations
+from agent.evidence_guard import evidence_payload, validate
 from agent.models import CompanyRow, EvidenceItem, PersonaName, Synthesis
 from agent.personas import PersonaPolicy
 
@@ -160,14 +160,21 @@ def synthesize(
         logger.warning("synthesis unavailable, using deterministic composer: %s", exc)
         return SynthesisResult(None)
 
-    reason = validate(candidate, evidence, catalog, lookup)
-    if reason is not None:
-        logger.warning("synthesis rejected, using deterministic composer: %s", reason)
+    unretrieved: list[str] = []
+    outside: list[str] = []
+    if catalog is not None and lookup is not None:
         try:
-            outside = tuple(out_of_scope_mentions(candidate, catalog, lookup)) if catalog is not None else ()
+            unretrieved, outside = company_violations(candidate, evidence, catalog, lookup, query)
         except Exception as exc:
             logger.warning("company lookup failed, using deterministic composer: %s", exc)
-            outside = ()
-        return SynthesisResult(None, outside)
+            return SynthesisResult(None)
+    reason = validate(candidate, evidence, catalog)
+    if reason is None and outside:
+        reason = f"names companies outside the sector catalog: {outside}"
+    if reason is None and unretrieved:
+        reason = f"names companies outside the retrieved evidence: {unretrieved}"
+    if reason is not None:
+        logger.warning("synthesis rejected, using deterministic composer: %s", reason)
+        return SynthesisResult(None, tuple(outside))
     logger.info("synthesis accepted (%s), citing %d evidence rows", _MODEL, len(candidate.evidence_ids))
     return SynthesisResult(candidate)

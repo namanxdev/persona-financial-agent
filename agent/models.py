@@ -47,6 +47,7 @@ class CompanyRow(BaseModel):
 class ListedCompany(BaseModel):
     query: str
     match_kind: Literal["ticker", "name"]
+    name_match: Literal["exact", "prefix", "first_word"] | None = None
     ticker: str
     name: str
     exchange: str

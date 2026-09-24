@@ -142,6 +142,7 @@ def validate(
     evidence: list[EvidenceItem],
     catalog: list[CompanyRow] | None = None,
     lookup: Lookup | None = None,
+    question: str = "",
 ) -> str | None:
     """Return a rejection reason, or None if the candidate may be shown."""
     if not candidate.thesis.strip() or not candidate.supporting_points:
@@ -164,7 +165,7 @@ def validate(
     tickers = {item.ticker for item in evidence}
     if catalog is not None and lookup is not None:
         try:
-            unretrieved, outside = company_violations(candidate, evidence, catalog, lookup)
+            unretrieved, outside = company_violations(candidate, evidence, catalog, lookup, question)
         except Exception as exc:
             return f"company lookup failed: {exc}"
         if outside:

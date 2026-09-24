@@ -20,6 +20,7 @@ _ALIASES: dict[str, tuple[str, ...]] = {
 _CASE_SENSITIVE_ALIASES = frozenset({"target", "meta", "low", "cost", "best buy", "apple", "ups"})
 _PROPER_NOUN_RE = re.compile(r"[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+){0,2}")
 _TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
+_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 .,&'\-]*$")
 _PRECEDING = re.compile(r"(?:about|vs|versus|than|between|like)\W+$", re.IGNORECASE)
 _OPENING = re.compile(r"^(?:(?:what|how|who|which|tell|me|do|you|think|is|are|about|the|a|an)\W+)*$", re.IGNORECASE)
 
@@ -126,7 +127,8 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
             start += len(opener) + len(separator)
             phrase = _strip_possessive(tail)
         if phrase and phrase.lower() not in aliases and phrase not in by_ticker:
-            pending.append((phrase, "name", start, start + len(phrase)))
+            end = start + len(phrase)
+            pending.append((" ".join(phrase.split()), "name", start, end))
     seen: set[tuple[str, str]] = set()
     for phrase, kind, start, end in pending:
         key = (phrase, kind)
@@ -139,17 +141,28 @@ def resolve_mentions(query: str, catalog: list[CompanyRow]) -> ScopeResult:
     return result
 
 
+def valid_candidates(candidates: list[Candidate]) -> list[Candidate]:
+    """Drop extractor shapes the bounded MCP tool cannot accept."""
+    return [item for item in candidates if item.kind == "ticker" or (
+        len(item.text) <= 60 and _TOOL_NAME_RE.fullmatch(item.text)
+    )]
+
+
 def outside_catalog(candidates: list[Candidate], hits: list[ListedCompany]) -> list[str]:
-    confirmed = {(hit.query, hit.match_kind) for hit in hits}
     confirmed_texts = {hit.query for hit in hits}
     outside: list[str] = []
     for candidate in candidates:
-        if (candidate.text, candidate.kind) not in confirmed:
+        matches = [hit for hit in hits if hit.query == candidate.text and hit.match_kind == candidate.kind]
+        if not matches:
             continue
         short_context = candidate.direct_context or candidate.joined_catalog or bool(
             confirmed_texts.intersection(candidate.joined_with)
         )
-        if candidate.kind == "name" or len(candidate.text) >= 4 or short_context:
+        named = candidate.kind == "name" and (
+            any(hit.name_match == "exact" for hit in matches)
+            or (candidate.company_context and len({hit.ticker for hit in matches}) == 1)
+        )
+        if named or (candidate.kind == "ticker" and (len(candidate.text) >= 4 or short_context)):
             if candidate.text not in outside:
                 outside.append(candidate.text)
     return outside

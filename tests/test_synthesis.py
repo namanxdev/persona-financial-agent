@@ -83,6 +83,27 @@ def test_out_of_scope_names_are_reported_so_the_caller_can_refuse(monkeypatch) -
     assert "Snowflake" in outcome.out_of_scope
 
 
+def test_rejected_draft_looks_up_all_candidates_once(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SYNTHESIS", "on")
+    calls: list[tuple[list[str], list[str]]] = []
+
+    def lookup(names: list[str], tickers: list[str]):
+        calls.append((names, tickers))
+        return listed_lookup(names, tickers)
+
+    draft = candidate(
+        thesis="MSFT looks sound, but Snowflake may be stronger.",
+        risks=["ODFL is another comparison.", "FCF and OTR pricing could change."],
+    )
+    outcome = synthesize(
+        "pe_analyst", "tech", "what about snowflake?", get_persona("pe_analyst"),
+        evidence(), "mixed", catalog=catalog(), complete=lambda _: draft.model_dump_json(), lookup=lookup,
+    )
+    assert outcome.synthesis is None
+    assert "Snowflake" in outcome.out_of_scope
+    assert len(calls) == 1
+
+
 def test_a_lowercase_question_about_an_uncovered_company_becomes_a_refusal() -> None:
     """The draft is discarded either way; the name decides refusal vs sector answer."""
     assert _query_named_out_of_scope(("Snowflake",), "what do you think about snowflake?") == ["Snowflake"]

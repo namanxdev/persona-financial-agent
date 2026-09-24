@@ -63,9 +63,13 @@ class ListedRegistry:
     def tickers(self) -> set[str]:
         return set(self.by_ticker)
 
-    def _result(self, query: str, kind: Literal["ticker", "name"], row: list[Any]) -> ListedCompanyRow:
+    def _result(
+        self, query: str, kind: Literal["ticker", "name"], row: list[Any],
+        name_match: Literal["exact", "prefix", "first_word"] | None = None,
+    ) -> ListedCompanyRow:
         return ListedCompanyRow(
-            query=query, match_kind=kind, cik=row[0], name=row[1], ticker=row[2], exchange=row[3],
+            query=query, match_kind=kind, name_match=name_match,
+            cik=row[0], name=row[1], ticker=row[2], exchange=row[3],
             source_url=self.source_url, as_of_date=self.as_of_date,
         )
 
@@ -84,13 +88,16 @@ class ListedRegistry:
         for name in names:
             normalized = normalize_name(name)
             matches = self.by_name.get(normalized, [])
+            match_type: Literal["exact", "prefix", "first_word"] = "exact"
             if not matches:
                 words = normalized.split()
                 if len(words) == 1:
                     row = self.by_first_word.get(normalized)
                     matches = [row] if row else []
+                    match_type = "first_word"
                 elif words:
                     matches = [row for row in self.by_prefix.get(words[0], [])
                                if normalize_name(str(row[1])).startswith(normalized + " ")]
-            results.extend(self._result(name, "name", row) for row in matches)
+                    match_type = "prefix"
+            results.extend(self._result(name, "name", row, match_type) for row in matches)
         return results

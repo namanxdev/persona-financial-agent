@@ -51,10 +51,11 @@ def candidate(**overrides) -> Synthesis:
 def listed_lookup(names: list[str], tickers: list[str]) -> list[ListedCompany]:
     """Fixed registry replies for guard tests; no server or vocabulary dependency."""
     known_names = {"snowflake": "SNOW", "old dominion": "ODFL", "nvidia": "NVDA"}
-    known_tickers = {"ODFL", "NVDA", "RIVN", "AI", "GM", "IT"}
+    known_tickers = {"ODFL", "NVDA", "RIVN", "AI", "GM", "IT", "KNX"}
     matches = [(name, "name", known_names[name.lower()]) for name in names if name.lower() in known_names]
     matches += [(ticker, "ticker", ticker) for ticker in tickers if ticker in known_tickers]
     return [ListedCompany(
-        query=text, match_kind=kind, ticker=ticker, name=f"{ticker} Inc.", exchange="NYSE", cik=1,
+        query=text, match_kind=kind, name_match="exact" if kind == "name" else None,
+        ticker=ticker, name=f"{ticker} Inc.", exchange="NYSE", cik=1,
         source_url="https://www.sec.gov/files/company_tickers_exchange.json", as_of_date=AS_OF,
     ) for text, kind, ticker in matches]

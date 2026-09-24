@@ -44,6 +44,13 @@ def test_name_hits(registry: ListedRegistry, name: str) -> None:
     assert hits and hits[0].match_kind == "name"
 
 
+def test_name_hit_reports_exact_vs_partial(registry: ListedRegistry) -> None:
+    assert registry.lookup(["Old Dominion Freight Line"], [])[0].name_match == "exact"
+    assert registry.lookup(["Old Dominion"], [])[0].name_match == "prefix"
+    assert registry.lookup(["Carrier"], [])[0].name_match == "first_word"
+    assert len({hit.ticker for hit in registry.lookup(["United States"], [])}) > 1
+
+
 @pytest.mark.parametrize("name", ["Free Cash Flow", "Operating Margin", "Net Debt"])
 def test_finance_phrases_miss(registry: ListedRegistry, name: str) -> None:
     assert registry.lookup([name], []) == []

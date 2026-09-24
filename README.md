@@ -480,12 +480,16 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
   market" stays a sector-wide query. Every other alias matches case-insensitively but only on
   whole-word boundaries, so "expose the cost" no longer resolves to XPO. Unmatched capitalised
   candidates are checked against the SEC registry, without a runtime vocabulary list. A 2-3 letter
-  ticker is refused only in company context; this prevents `AI capex` and `IT spending` from being
-  mistaken for companies. A 4-5 letter listed ticker or a confirmed name is refused. The registry
+  ticker in a question is refused only in company context; this prevents `AI capex` and `IT spending`
+  from being mistaken for companies. A 4-5 letter listed ticker or an exact company name is
+  refused. A partial name must have company context and identify exactly one registry row; thus
+  "Carrier demand" and "United States tariffs" remain sector questions. The registry
   is a dated snapshot and does not include private companies. Lowercase out-of-catalog names such
   as "what about snowflake?" remain invisible to the initial extractor. A 2-3 letter ticker with
   no company context may also pass as sector jargon. The single-word first-name rule uses SEC
-  uniqueness as a proxy for a distinctive brand; a word such as "Open" can still match Open Text.
+  uniqueness as a proxy for a distinctive brand; "What about Open?" can still match Open Text.
+  "Amazon Air" is not itself a listed-company name in this snapshot, so a question using that
+  phrase receives a sector answer rather than a refusal about Amazon.
 
   That second gap is covered downstream rather than in the resolver. If the model then writes
   about a company the catalog does not contain, and the question named it too, the answer becomes
@@ -502,7 +506,8 @@ The agent reaches data through exactly five fixed, typed tools --
 `run_sector_screen` -- served by `mcp_server/entrypoint.py` over stdio. The entry point attaches
 the read-only registry tool to the database server without changing `mcp_server/server.py`.
 The registry is indexed in memory from the committed JSON snapshot; financial facts still come
-only from the SQLite-backed tools. The boundary is deliberate:
+only from the SQLite-backed tools. Model drafts batch their company candidates into one fresh MCP
+session and reuse the result for validation and refusal decisions. The boundary is deliberate:
 
 - **Fixed tools instead of generic SQL** keep every possible retrieval shape enumerable and
   typed (the Pydantic row models in `mcp_server/models.py`), so a persona's tool calls are a legible,
@@ -585,7 +590,7 @@ actually satisfy.
 | Check | What it rejects |
 | --- | --- |
 | Every cited `evidence_id` was retrieved this turn | A citation to a row no tool returned |
-| Every ticker-shaped token was retrieved this turn | "NVDA looks cheaper" when NVDA is not in the data |
+| Every registry-confirmed ticker introduced by the model was retrieved this turn; a token already in the user's question may be repeated as jargon | "KNX operating margin is 45.1%" when KNX was not retrieved |
 | Every figure matches a display value as a typed quantity -- sign, currency, digits, suffix (`B`, `M`, `K`, `%`, `x`) -- read by the same pattern from both sides | An invented figure; equally a *computed* one, since an average or a delta is still a number no tool returned; and a real figure with its sign dropped (`$24.5B` for `-$24.5B`), its magnitude changed (`$24.5M`) or its unit swapped (`45.1x` for `45.1%`) |
 | Every `YYYY-MM-DD` date equals a retrieved `as_of_date` | A date no row carries |
 | Per sentence: one named company -- by ticker *or* by name -- means its figures must be that company's | A real number attached to the wrong company, including "Apple's operating margin is 45.1%" when 45.1% is MSFT's |
@@ -655,7 +660,7 @@ jargon_not_refused_otr             PASS    evidence=23; OTR did not trigger a re
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: **168 passed** on 2026-09-24 with `uv run --no-sync python -m pytest -q`;
+Test suite alongside it: **182 passed** on 2026-09-24 with `uv run --no-sync python -m pytest -q`;
 the local Windows run set `--basetemp` to a writable temp path because the default temp directory
 had an unrelated ACL error.
 

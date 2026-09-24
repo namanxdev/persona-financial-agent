@@ -58,7 +58,8 @@ def test_candidates_record_company_usage(query: str, expected: list[tuple[str, s
 
 def _hit(text: str, kind: str, ticker: str) -> ListedCompany:
     return ListedCompany(
-        query=text, match_kind=kind, ticker=ticker, name=f"{ticker} Corporation", exchange="NYSE",
+        query=text, match_kind=kind, name_match="exact" if kind == "name" else None,
+        ticker=ticker, name=f"{ticker} Corporation", exchange="NYSE",
         cik=1, source_url="https://www.sec.gov/files/company_tickers_exchange.json", as_of_date=date.today(),
     )
 

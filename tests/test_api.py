@@ -52,6 +52,17 @@ def test_query_returns_explicit_refusal_for_unknown_company() -> None:
     assert "Snowflake" in body["answer"]
 
 
+@pytest.mark.parametrize("query", [
+    "Compare UPS\nand Old\nDominion",
+    "How is " + "A" * 80 + " demand trending?",
+])
+def test_query_candidates_outside_tool_shape_do_not_return_502(query: str) -> None:
+    response = client.post("/query", json={
+        "query": query, "persona": "pe_analyst", "sector": "logistics",
+    })
+    assert response.status_code == 200
+
+
 def test_query_tools_called_preserves_repeated_calls() -> None:
     response = client.post("/query", json={
         "query": "Walk me through the margin profile of the companies in your data.",

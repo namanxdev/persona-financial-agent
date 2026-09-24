@@ -21,7 +21,7 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (168 tests, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (182 tests, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
 uv run python evals/run_evals.py           # 9 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
@@ -106,8 +106,10 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.entrypoin
   never calls a provider.
 - `agent/scope.py` extracts candidates without a vocabulary list. `lookup_companies` confirms them
   against a dated SEC snapshot. Two- and three-letter ticker hits need company usage context;
-  longer ticker hits and name hits are companies. Drafts use the same registry check in
-  `agent/company_guard.py`; failed lookups discard the draft.
+  longer ticker hits and exact-name hits are companies. Partial names need company context and one
+  unique registry match. Drafts use a stricter ticker rule in `agent/company_guard.py`: a registry
+  ticker absent from the evidence is rejected unless the user's question already contained that
+  token. All draft candidates are looked up together; failed lookups discard the draft.
 - A lowercase mention of a company outside the dataset ("what about snowflake?") is invisible to
   `scope.py` by construction. It is caught after retrieval instead: if the model's draft names a
   company the catalog lacks *and* the question named it too, `core._query_named_out_of_scope`

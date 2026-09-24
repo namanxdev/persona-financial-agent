@@ -107,8 +107,16 @@ def _build_response(
     )
     # Deterministic composition always runs first: it produces the evidence set and
     # the answer that ships whenever synthesis is unavailable or fails validation.
+    def lookup(names: list[str], tickers: list[str]) -> list[ListedCompany]:
+        async def fetch() -> list[ListedCompany]:
+            async with AgentMcpClient() as client:
+                return await client.lookup_companies(names, tickers)
+
+        tools_called.append("lookup_companies")
+        return asyncio.run(fetch())
+
     result = synthesize(
-        request.persona, request.sector, request.query, policy, evidence, framing.stance, catalog
+        request.persona, request.sector, request.query, policy, evidence, framing.stance, catalog, lookup=lookup
     )
     refused = _query_named_out_of_scope(result.out_of_scope, request.query)
     if refused:

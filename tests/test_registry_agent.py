@@ -1,6 +1,8 @@
 """End-to-end registry decisions over the real stdio MCP boundary."""
 
 import asyncio
+import json
+import re
 
 import pytest
 
@@ -35,3 +37,31 @@ def test_registry_confirmed_companies_are_refused(sector: str, query: str, name:
     assert response.evidence == []
     assert response.confidence == "low"
     assert name in response.answer
+
+
+def test_model_draft_uses_a_fresh_registry_session_and_records_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lowercase query reaches synthesis; its drafted company still gets checked."""
+    from agent import core, synthesis
+    from agent.llm import FramingChoice
+
+    monkeypatch.setenv("AGENT_SYNTHESIS", "on")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
+    monkeypatch.setattr(core, "choose_framing", lambda *args: FramingChoice("neutral", "deterministic_fallback"))
+
+    def complete(_: str, prompt: str) -> str:
+        evidence_id = re.search(r'"evidence_id": "([^"]+)"', prompt)
+        assert evidence_id is not None
+        return json.dumps({
+            "thesis": "The data suggest Snowflake looks stronger.",
+            "supporting_points": ["Available evidence supports this view."],
+            "risks": [], "limitations": [], "evidence_ids": [evidence_id.group(1)],
+        })
+
+    monkeypatch.setattr(synthesis, "_complete_via_openai", complete)
+    response = asyncio.run(answer_query(QueryRequest(
+        query="what do you think about snowflake?", persona="pe_analyst", sector="tech",
+    )))
+    assert response.evidence == []
+    assert response.confidence == "low"
+    assert "Snowflake" in response.answer
+    assert response.tools_called[-1] == "lookup_companies"

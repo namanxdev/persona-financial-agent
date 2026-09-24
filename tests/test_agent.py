@@ -45,7 +45,7 @@ def test_scope_resolution_refuses_ordinary_mixed_case_name_before_retrieval() ->
     assert response.confidence == "low"
     assert response.evidence == []
     assert response.companies_referenced == []
-    assert response.tools_called == ["list_companies"]  # refused before any screen/financials call
+    assert response.tools_called == ["list_companies", "lookup_companies"]
 
 
 def test_scope_resolution_refuses_unlisted_ticker_style_mention() -> None:
@@ -135,7 +135,7 @@ def test_scope_resolution_matches_alias_and_ticker_case_insensitively() -> None:
     catalog = [CompanyRow(ticker="FDX", name="FedEx Corporation", sector="logistics", as_of_date=date.today(), source_url="https://example.com")]
     result = resolve_mentions("tell me about fedex", catalog)
     assert "FDX" in result.matched
-    assert result.unmatched == []
+    assert result.candidates == []
 
 
 def _retail_catalog() -> list["CompanyRow"]:
@@ -186,10 +186,8 @@ def test_substring_collision_is_not_a_company_mention() -> None:
 
 def test_acronyms_in_a_question_are_not_out_of_scope_companies() -> None:
     """"What is the EV/EBITDA?" must not read as a company called EV and refuse."""
-    from agent.models import CompanyRow
-
-    catalog = [CompanyRow(ticker="MSFT", name="Microsoft Corporation", sector="tech",
-                          as_of_date=date.today(), source_url="https://example.com")]
     for query in ("What is the EV/EBITDA for MSFT?", "Show me the TTM operating margin",
                   "Which of these has the best FCF and ROIC?"):
-        assert resolve_mentions(query, catalog).unmatched == [], query
+        response = _run(QueryRequest(query=query, persona="equity_analyst", sector="tech"))
+        assert response.evidence, query
+

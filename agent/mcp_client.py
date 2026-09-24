@@ -17,7 +17,7 @@ from typing import Any
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from agent.models import CompanyRow, Direction, FinancialRow, HiringSignalRow, ScreenResult, Sector
+from agent.models import CompanyRow, Direction, FinancialRow, HiringSignalRow, ListedCompany, ScreenResult, Sector
 from server_launch import DEFAULT_DATABASE, server_command
 
 
@@ -84,6 +84,10 @@ class AgentMcpClient:
     async def list_companies(self, sector: Sector) -> list[CompanyRow]:
         payload = await self._call("list_companies", {"sector": sector})
         return [CompanyRow.model_validate(row) for row in payload["result"]]
+
+    async def lookup_companies(self, names: list[str], tickers: list[str]) -> list[ListedCompany]:
+        payload = await self._call("lookup_companies", {"names": names, "tickers": tickers})
+        return [ListedCompany.model_validate(row) for row in payload["result"]]
 
     async def get_financials(self, ticker: str, metrics: list[str]) -> list[FinancialRow]:
         payload = await self._call("get_financials", {"ticker": ticker, "metrics": metrics})

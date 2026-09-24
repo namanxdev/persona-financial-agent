@@ -21,9 +21,10 @@ fails it is discarded and the deterministic composer writes the answer instead.
 
 import re
 
+from agent.company_guard import Lookup, company_violations
 from agent.format import format_value, metric_label
 from agent.models import CompanyRow, EvidenceItem, Synthesis
-from agent.scope import ACRONYM_STOPWORDS, resolve_mentions
+from agent.scope import resolve_mentions
 
 _MAX_CHARS = 400
 _DATE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
@@ -128,38 +129,20 @@ def _ungrounded(
     return found
 
 
-def out_of_scope_mentions(candidate: Synthesis, catalog: list[CompanyRow]) -> list[str]:
-    """Company names in the draft that this sector's catalog does not contain.
-
-    Checking uppercase tickers against the evidence is not enough: a model handed
-    the user's question will happily write about "Snowflake" in proper-noun form,
-    which is not ticker-shaped and so passes every numeric check while the answer
-    is *about* a company holding no data. This runs the same resolver a query
-    goes through, so a name the agent would refuse to answer about cannot appear
-    in an answer either.
-
-    Sentence by sentence, because that resolver ignores a sentence-initial capital
-    -- otherwise every bullet starting "Market volatility..." would read as a
-    company. That leaves one gap by design: a draft whose *only* mention of an
-    uncovered company opens a sentence is not caught. Closing it needs a
-    dictionary of ordinary words, and the version that tried refused a real
-    question about "the margin and valuation picture" because the answer happened
-    to open a bullet with "Valuation". A missed mention costs a plainer answer; a
-    false one costs a refusal of a question the data can actually answer.
-    """
-    found: list[str] = []
-    for chunk in _chunks(candidate):
-        for sentence in _sentences(chunk):
-            for name in resolve_mentions(sentence, catalog).unmatched:
-                if name not in found:
-                    found.append(name)
-    return found
+def out_of_scope_mentions(
+    candidate: Synthesis, catalog: list[CompanyRow], lookup: Lookup | None = None,
+) -> list[str]:
+    if lookup is None:
+        return []
+    return company_violations(candidate, [], catalog, lookup)[1]
 
 
 def validate(
     candidate: Synthesis,
     evidence: list[EvidenceItem],
     catalog: list[CompanyRow] | None = None,
+    lookup: Lookup | None = None,
+    question: str = "",
 ) -> str | None:
     """Return a rejection reason, or None if the candidate may be shown."""
     if not candidate.thesis.strip() or not candidate.supporting_points:
@@ -180,18 +163,15 @@ def validate(
     # the model chose to cite: discussing a retrieved company without formally citing
     # it is untidy, whereas naming one that was never retrieved is fabrication.
     tickers = {item.ticker for item in evidence}
-    invented = {
-        token
-        for token in _UPPERCASE.findall(prose)
-        if token not in ACRONYM_STOPWORDS and token not in tickers
-    }
-    if invented:
-        return f"names companies outside the retrieved evidence: {sorted(invented)}"
-
-    if catalog is not None:
-        outside = out_of_scope_mentions(candidate, catalog)
+    if catalog is not None and lookup is not None:
+        try:
+            unretrieved, outside = company_violations(candidate, evidence, catalog, lookup, question)
+        except Exception as exc:
+            return f"company lookup failed: {exc}"
         if outside:
             return f"names companies outside the sector catalog: {outside}"
+        if unretrieved:
+            return f"names companies outside the retrieved evidence: {unretrieved}"
 
     ungrounded = _ungrounded(candidate, evidence, tickers, catalog)
     if ungrounded:

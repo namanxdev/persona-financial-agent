@@ -35,6 +35,18 @@ class CompanyRow(BaseModel):
     source_url: HttpUrl
 
 
+class ListedCompanyRow(BaseModel):
+    query: str
+    match_kind: Literal["ticker", "name"]
+    name_match: Literal["exact", "prefix", "first_word"] | None = None
+    ticker: str
+    name: str
+    exchange: str
+    cik: int
+    source_url: HttpUrl
+    as_of_date: date
+
+
 class FinancialRow(BaseModel):
     ticker: str
     metric: str

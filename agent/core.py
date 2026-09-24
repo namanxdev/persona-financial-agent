@@ -14,10 +14,10 @@ from agent.focus import question_focus
 from agent.grounding import compose_answer, out_of_scope_answer
 from agent.llm import choose_framing
 from agent.mcp_client import AgentMcpClient
-from agent.models import CompanyRow, QueryRequest, QueryResponse
+from agent.models import CompanyRow, ListedCompany, QueryRequest, QueryResponse
 from agent.personas import PersonaPolicy, get_persona
 from agent.retrieval import RetrievalBundle, run_company_focus, run_sector_wide
-from agent.scope import resolve_mentions
+from agent.scope import outside_catalog, resolve_mentions, valid_candidates
 from agent.synthesis import render, synthesize
 
 
@@ -26,10 +26,19 @@ async def answer_query(request: QueryRequest) -> QueryResponse:
     async with AgentMcpClient() as client:
         companies = await client.list_companies(request.sector)
         scope = resolve_mentions(request.query, companies)
+        candidates = valid_candidates(scope.candidates)
 
-        if scope.unmatched:
+        hits: list[ListedCompany] = []
+        for offset in range(0, len(candidates), 20):
+            batch = candidates[offset:offset + 20]
+            hits.extend(await client.lookup_companies(
+                [item.text for item in batch if item.kind == "name"],
+                [item.text for item in batch if item.kind == "ticker"],
+            ))
+        outside = outside_catalog(candidates, hits)
+        if outside:
             return QueryResponse(
-                answer=out_of_scope_answer(request.sector, scope.unmatched),
+                answer=out_of_scope_answer(request.sector, outside),
                 persona=request.persona,
                 sector=request.sector,
                 companies_referenced=[],
@@ -99,8 +108,23 @@ def _build_response(
     )
     # Deterministic composition always runs first: it produces the evidence set and
     # the answer that ships whenever synthesis is unavailable or fails validation.
+    def lookup(names: list[str], tickers: list[str]) -> list[ListedCompany]:
+        async def fetch() -> list[ListedCompany]:
+            async with AgentMcpClient() as client:
+                rows: list[ListedCompany] = []
+                try:
+                    for offset in range(0, max(len(names), len(tickers)), 20):
+                        rows.extend(await client.lookup_companies(
+                            names[offset:offset + 20], tickers[offset:offset + 20],
+                        ))
+                finally:
+                    tools_called.extend(client.tool_calls)
+                return rows
+
+        return asyncio.run(fetch())
+
     result = synthesize(
-        request.persona, request.sector, request.query, policy, evidence, framing.stance, catalog
+        request.persona, request.sector, request.query, policy, evidence, framing.stance, catalog, lookup=lookup
     )
     refused = _query_named_out_of_scope(result.out_of_scope, request.query)
     if refused:

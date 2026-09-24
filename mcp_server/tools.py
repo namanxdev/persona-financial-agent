@@ -14,12 +14,14 @@ from mcp_server.models import (
     Direction,
     FinancialRow,
     HiringSignalRow,
+    ListedCompanyRow,
     ScreenExclusion,
     ScreenResult,
     ScreenRow,
     Sector,
     SourceRef,
 )
+from mcp_server.registry import ListedRegistry
 
 
 def _lineage(connection: sqlite3.Connection, observation_id: int) -> list[SourceRef]:
@@ -64,6 +66,10 @@ async def list_companies(connection: sqlite3.Connection, sector: Sector) -> list
         CompanyRow(ticker=r["ticker"], name=r["name"], sector=r["sector"], as_of_date=r["as_of_date"], source_url=r["source_url"])
         for r in rows
     ]
+
+
+async def lookup_companies(registry: ListedRegistry, names: list[str], tickers: list[str]) -> list[ListedCompanyRow]:
+    return registry.lookup(names, tickers)
 
 
 async def get_financials(connection: sqlite3.Connection, ticker: str, metrics: list[str]) -> list[FinancialRow]:

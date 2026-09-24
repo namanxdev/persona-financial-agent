@@ -1,7 +1,7 @@
-"""Exercises the four MCP tools through a real stdio subprocess and ClientSession.
+"""Exercises the five MCP tools through a real stdio subprocess and ClientSession.
 
 Calling the handlers directly would not prove the boundary holds, so every assertion
-here goes through a spawned `python -m mcp_server.server` process talking JSON-RPC
+here goes through a spawned `python -m mcp_server.entrypoint` process talking JSON-RPC
 over stdio, exactly as the agent does in agent/mcp_client.py.
 """
 
@@ -21,7 +21,7 @@ DATABASE = ROOT / "data" / "agent_techhome.db"
 async def _call(name: str, arguments: dict) -> object:
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "mcp_server.server", "--database", str(DATABASE)],
+        args=["-m", "mcp_server.entrypoint", "--database", str(DATABASE)],
         cwd=str(ROOT),
     )
     async with stdio_client(params) as (read, write):
@@ -34,6 +34,19 @@ def _run(name: str, arguments: dict) -> object:
     return asyncio.run(_call(name, arguments))
 
 
+async def _list_tools() -> set[str]:
+    command, args, cwd = sys.executable, ["-m", "mcp_server.entrypoint", "--database", str(DATABASE)], str(ROOT)
+    async with stdio_client(StdioServerParameters(command=command, args=args, cwd=cwd)) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            listing = await session.list_tools()
+            return {tool.name for tool in listing.tools}
+
+
+def test_registry_tool_is_advertised() -> None:
+    assert "lookup_companies" in asyncio.run(_list_tools())
+
+
 def test_list_companies_returns_sourced_rows_for_sector() -> None:
     result = _run("list_companies", {"sector": "logistics"})
     assert not result.isError
@@ -42,6 +55,19 @@ def test_list_companies_returns_sourced_rows_for_sector() -> None:
     for row in rows:
         assert row["source_url"].startswith("https://")
         assert row["as_of_date"]
+
+
+def test_lookup_companies_returns_registry_provenance() -> None:
+    result = _run("lookup_companies", {"names": ["Old Dominion"], "tickers": ["RIVN", "OTR"]})
+    assert not result.isError
+    rows = result.structuredContent["result"]
+    assert {row["ticker"] for row in rows} == {"ODFL", "RIVN"}
+    assert all(row["source_url"].startswith("https://") and row["as_of_date"] for row in rows)
+
+
+def test_lookup_companies_rejects_invalid_candidates() -> None:
+    result = _run("lookup_companies", {"names": ["a; DROP"], "tickers": []})
+    assert result.isError
 
 
 def test_list_companies_rejects_unknown_sector() -> None:

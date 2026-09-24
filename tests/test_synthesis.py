@@ -13,7 +13,7 @@ import pytest
 from agent.core import _query_named_out_of_scope
 from agent.personas import get_persona
 from agent.synthesis import render, synthesize
-from tests.guard_fixtures import candidate, catalog, evidence
+from tests.guard_fixtures import candidate, catalog, evidence, listed_lookup
 
 
 def test_synthesize_returns_the_candidate_when_the_model_behaves(monkeypatch) -> None:
@@ -77,7 +77,7 @@ def test_out_of_scope_names_are_reported_so_the_caller_can_refuse(monkeypatch) -
     outcome = synthesize(
         "mutual_fund_analyst", "tech", "what do you think about snowflake?",
         get_persona("mutual_fund_analyst"), evidence(), "mixed",
-        catalog=catalog(), complete=lambda _: draft.model_dump_json(),
+        catalog=catalog(), complete=lambda _: draft.model_dump_json(), lookup=listed_lookup,
     )
     assert outcome.synthesis is None
     assert "Snowflake" in outcome.out_of_scope

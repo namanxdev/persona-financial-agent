@@ -14,10 +14,10 @@ from agent.focus import question_focus
 from agent.grounding import compose_answer, out_of_scope_answer
 from agent.llm import choose_framing
 from agent.mcp_client import AgentMcpClient
-from agent.models import CompanyRow, QueryRequest, QueryResponse
+from agent.models import CompanyRow, ListedCompany, QueryRequest, QueryResponse
 from agent.personas import PersonaPolicy, get_persona
 from agent.retrieval import RetrievalBundle, run_company_focus, run_sector_wide
-from agent.scope import resolve_mentions
+from agent.scope import outside_catalog, resolve_mentions
 from agent.synthesis import render, synthesize
 
 
@@ -27,9 +27,17 @@ async def answer_query(request: QueryRequest) -> QueryResponse:
         companies = await client.list_companies(request.sector)
         scope = resolve_mentions(request.query, companies)
 
-        if scope.unmatched:
+        hits: list[ListedCompany] = []
+        for offset in range(0, len(scope.candidates), 20):
+            batch = scope.candidates[offset:offset + 20]
+            hits.extend(await client.lookup_companies(
+                [item.text for item in batch if item.kind == "name"],
+                [item.text for item in batch if item.kind == "ticker"],
+            ))
+        outside = outside_catalog(scope.candidates, hits)
+        if outside:
             return QueryResponse(
-                answer=out_of_scope_answer(request.sector, scope.unmatched),
+                answer=out_of_scope_answer(request.sector, outside),
                 persona=request.persona,
                 sector=request.sector,
                 companies_referenced=[],

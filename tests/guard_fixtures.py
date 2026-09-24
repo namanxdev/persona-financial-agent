@@ -7,7 +7,7 @@ each be tested against the display string the model is actually shown.
 
 from datetime import date
 
-from agent.models import CompanyRow, EvidenceItem, Synthesis
+from agent.models import CompanyRow, EvidenceItem, ListedCompany, Synthesis
 
 AS_OF = date(2026, 9, 7)
 
@@ -46,3 +46,15 @@ def candidate(**overrides) -> Synthesis:
     }
     fields.update(overrides)
     return Synthesis(**fields)
+
+
+def listed_lookup(names: list[str], tickers: list[str]) -> list[ListedCompany]:
+    """Fixed registry replies for guard tests; no server or vocabulary dependency."""
+    known_names = {"snowflake": "SNOW", "old dominion": "ODFL", "nvidia": "NVDA"}
+    known_tickers = {"ODFL", "NVDA", "RIVN", "AI", "GM", "IT"}
+    matches = [(name, "name", known_names[name.lower()]) for name in names if name.lower() in known_names]
+    matches += [(ticker, "ticker", ticker) for ticker in tickers if ticker in known_tickers]
+    return [ListedCompany(
+        query=text, match_kind=kind, ticker=ticker, name=f"{ticker} Inc.", exchange="NYSE", cik=1,
+        source_url="https://www.sec.gov/files/company_tickers_exchange.json", as_of_date=AS_OF,
+    ) for text, kind, ticker in matches]

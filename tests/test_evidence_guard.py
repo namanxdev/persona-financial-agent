@@ -8,7 +8,7 @@ figures the model computed or invented instead of quoting.
 import pytest
 
 from agent.evidence_guard import evidence_payload, out_of_scope_mentions, validate
-from tests.guard_fixtures import candidate, catalog, evidence
+from tests.guard_fixtures import candidate, catalog, evidence, listed_lookup
 
 
 def test_payload_shows_the_model_display_strings_not_raw_floats() -> None:
@@ -39,8 +39,8 @@ def test_rejects_a_figure_the_model_computed_from_the_evidence() -> None:
 
 
 def test_rejects_a_company_that_was_never_retrieved() -> None:
-    reason = validate(candidate(thesis="NVDA is the stronger operator here."), evidence())
-    assert reason is not None and "outside the retrieved evidence" in reason
+    reason = validate(candidate(thesis="NVDA is the stronger operator here."), evidence(), catalog(), listed_lookup)
+    assert reason is not None and "outside the sector catalog" in reason
 
 
 def test_rejects_a_real_figure_attached_to_the_wrong_company() -> None:
@@ -61,6 +61,26 @@ def test_financial_acronyms_are_not_mistaken_for_companies() -> None:
     assert validate(draft, evidence()) is None
 
 
+def test_registry_guard_allows_jargon_in_a_draft() -> None:
+    draft = candidate(risks=["EV/EBITDA, FCF and OTR pricing may matter."])
+    assert validate(draft, evidence(), catalog(), listed_lookup) is None
+
+
+def test_registry_guard_rejects_confirmed_outside_company() -> None:
+    draft = candidate(risks=["ODFL could have better margins."])
+    reason = validate(draft, evidence(), catalog(), listed_lookup)
+    assert reason is not None and "outside the sector catalog" in reason
+
+
+def test_registry_guard_fails_closed_when_lookup_raises() -> None:
+    def unavailable(names: list[str], tickers: list[str]) -> list:
+        raise RuntimeError("registry unavailable")
+
+    draft = candidate(risks=["ODFL could have better margins."])
+    reason = validate(draft, evidence(), catalog(), unavailable)
+    assert reason is not None and "company lookup failed" in reason
+
+
 def test_rejects_an_empty_thesis() -> None:
     assert validate(candidate(thesis="   "), evidence()) is not None
 
@@ -79,8 +99,8 @@ def test_rejects_a_company_named_in_prose_but_absent_from_the_catalog() -> None:
         thesis="While Snowflake operates in a high-growth tech sector, MSFT screens better.",
         limitations=["Lack of specific data on Snowflake's growth"],
     )
-    assert "Snowflake" in out_of_scope_mentions(draft, catalog())
-    reason = validate(draft, evidence(), catalog())
+    assert "Snowflake" in out_of_scope_mentions(draft, catalog(), listed_lookup)
+    reason = validate(draft, evidence(), catalog(), listed_lookup)
     assert reason is not None and "outside the sector catalog" in reason
 
 
@@ -92,8 +112,8 @@ def test_ordinary_capitalised_prose_is_not_read_as_a_company() -> None:
         risks=["Potential for overvaluation", "Changing consumer preferences"],
         limitations=["Future growth projections are uncertain", "No direct comparison metrics"],
     )
-    assert out_of_scope_mentions(draft, catalog()) == []
-    assert validate(draft, evidence(), catalog()) is None
+    assert out_of_scope_mentions(draft, catalog(), listed_lookup) == []
+    assert validate(draft, evidence(), catalog(), listed_lookup) is None
 
 
 def test_financial_acronyms_are_not_read_as_companies_by_either_side() -> None:
@@ -101,8 +121,8 @@ def test_financial_acronyms_are_not_read_as_companies_by_either_side() -> None:
     share one vocabulary list, so an acronym cannot be a company on one side of
     the boundary and not the other."""
     draft = candidate(risks=["Screening on EV/EBITDA and FCF, the US names look full versus GAAP earnings."])
-    assert out_of_scope_mentions(draft, catalog()) == []
-    assert validate(draft, evidence(), catalog()) is None
+    assert out_of_scope_mentions(draft, catalog(), listed_lookup) == []
+    assert validate(draft, evidence(), catalog(), listed_lookup) is None
 
 
 def test_a_bullet_opening_with_a_word_from_the_question_is_not_a_company() -> None:
@@ -113,8 +133,8 @@ def test_a_bullet_opening_with_a_word_from_the_question_is_not_a_company() -> No
         risks=["Valuation looks stretched.", "Market volatility is a factor."],
         limitations=["Growth is measured on trailing data only."],
     )
-    assert out_of_scope_mentions(draft, catalog()) == []
-    assert validate(draft, evidence(), catalog()) is None
+    assert out_of_scope_mentions(draft, catalog(), listed_lookup) == []
+    assert validate(draft, evidence(), catalog(), listed_lookup) is None
 
 
 def test_negative_dollars_render_with_the_sign_before_the_currency() -> None:

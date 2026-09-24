@@ -86,6 +86,14 @@ async def _refusal_case(name: str, query: str, persona: PersonaName, sector: Sec
     return EvalResult(name, passed, detail)
 
 
+async def _jargon_case() -> EvalResult:
+    response = await answer_query(QueryRequest(
+        query="How are the OTR carriers doing on margins?", persona="pe_analyst", sector="logistics",
+    ))
+    passed = bool(response.evidence) and not response.answer.startswith("I don't have")
+    return EvalResult("jargon_not_refused_otr", passed, f"evidence={len(response.evidence)} tools={response.tools_called}")
+
+
 def build_cases() -> list[tuple[str, Callable[[], Awaitable[EvalResult]]]]:
     return [
         ("divergence_tech_investment_case", lambda: _divergence_case(
@@ -119,4 +127,5 @@ def build_cases() -> list[tuple[str, Callable[[], Awaitable[EvalResult]]]]:
         ("refusal_unknown_mixed_case_name", lambda: _refusal_case(
             "refusal_unknown_mixed_case_name", "What do you think about Snowflake?", "equity_analyst", "tech", "Snowflake",
         )),
+        ("jargon_not_refused_otr", _jargon_case),
     ]

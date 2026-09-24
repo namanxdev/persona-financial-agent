@@ -21,13 +21,14 @@ Python 3.12 + `uv`. All commands run from the repo root.
 
 ```bash
 uv sync                                    # install
-uv run python -m pytest -q                 # full suite (141 tests, ~50s, hermetic -- see tests/conftest.py)
+uv run python -m pytest -q                 # full suite (168 tests, hermetic -- see tests/conftest.py)
 uv run python -m pytest tests/test_agent.py::test_persona_divergence_same_question_same_sector -q   # one test
-uv run python evals/run_evals.py           # 8 eval cases, pass/fail table, nonzero exit on failure
+uv run python evals/run_evals.py           # 9 eval cases, pass/fail table, nonzero exit on failure
 uv run uvicorn api.main:app --reload       # API on :8000 (/docs for Swagger)
 uv run streamlit run ui/app.py             # UI on :8501
 uv run python scripts/build_db.py          # rebuild DB from live SEC+Yahoo (needs SEC_USER_AGENT)
 uv run python scripts/build_db.py --offline   # rebuild by replaying .source-cache/, no network
+uv run python scripts/build_registry.py    # refresh SEC registry (needs SEC_USER_AGENT)
 ```
 
 There is no linter or formatter configured. CI (`.github/workflows/ci.yml`) runs the suite and the
@@ -48,8 +49,8 @@ These are graded requirements, not preferences. Violating one invalidates the de
 3. **Persona changes retrieval, not tone.** Each `PersonaPolicy` fixes its own metrics, screen
    metric/direction, result limit, and literal tool-call order. If all three personas produce the
    same tool sequence, the primary criterion has failed — fix the policy, never the prompt.
-4. **No fabrication, no fallback to model knowledge.** A company not in the sector catalog gets an
-   explicit refusal before any retrieval. A dead MCP process surfaces as an error (502 in the API,
+4. **No fabrication, no fallback to model knowledge.** A registry-confirmed listed company outside
+   the sector catalog gets an explicit refusal before financial retrieval. A dead MCP process surfaces as an error (502 in the API,
    `st.error` in the UI). Missing values stay `NULL`, never zero or estimated. Model-written prose
    ships only if `agent/evidence_guard.validate` passes it; otherwise the deterministic answer
    ships instead.
@@ -59,19 +60,21 @@ These are graded requirements, not preferences. Violating one invalidates the de
 
 ## Architecture
 
-**Request flow** (`agent/core.py:answer_query`, one fresh MCP subprocess per request, no caching):
+**Request flow** (`agent/core.py:answer_query`, a fresh MCP subprocess for retrieval, no caching):
 
 ```
-QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
+QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.entrypoint)
              -> list_companies(sector)              # always the first tool call
-             -> scope.resolve_mentions              # unmatched company -> refusal, return early
+             -> scope.resolve_mentions              # catalog matches and candidates
+             -> lookup_companies (if candidates)     # SEC confirmation; outside company -> refusal
              -> retrieval.run_company_focus | run_sector_wide   # persona-driven tool plan
-             -- MCP session closes; the rest runs in a worker thread (sync provider calls) --
+             -- retrieval MCP session closes; the rest runs in a worker thread --
              -> llm.choose_framing                  # sees labeled values, returns one stance
                                                     # word; keyless it is always "neutral"
              -> grounding.compose_answer            # templates filled from EvidenceItem rows
              -> synthesis.synthesize                # model writes the thesis; evidence_guard
-                                                    # validates it or it is discarded
+                                                    # may open a fresh MCP registry session to
+                                                    # validate names, or discard the draft
              -> confidence.compute_confidence       # derived from slots, never model-chosen
              -> QueryResponse
 ```
@@ -101,9 +104,10 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
   have weakened the whole design, so change it only alongside a test in `tests/test_evidence_guard.py`.
   `AGENT_SYNTHESIS=off` forces the deterministic path; `tests/conftest.py` sets it so the suite
   never calls a provider.
-- `agent/scope.py` owns `ACRONYM_STOPWORDS`, the one list of uppercase tokens that are vocabulary
-  rather than tickers. `evidence_guard` imports it; do not start a second copy, because two copies
-  drifted apart once and let `EV/EBITDA` read as a company on one side of the boundary only.
+- `agent/scope.py` extracts candidates without a vocabulary list. `lookup_companies` confirms them
+  against a dated SEC snapshot. Two- and three-letter ticker hits need company usage context;
+  longer ticker hits and name hits are companies. Drafts use the same registry check in
+  `agent/company_guard.py`; failed lookups discard the draft.
 - A lowercase mention of a company outside the dataset ("what about snowflake?") is invisible to
   `scope.py` by construction. It is caught after retrieval instead: if the model's draft names a
   company the catalog lacks *and* the question named it too, `core._query_named_out_of_scope`
@@ -113,10 +117,10 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.server)
   hiring signal, then scores `0.65*coverage + 0.35*freshness`. **High** additionally requires every
   required slot fresh within 180 days. Future dates score 0, not fresh. The rule is documented in
   README.md — keep the two in sync.
-- `mcp_server/` exposes exactly four typed tools (`list_companies`, `get_financials`,
-  `get_hiring_signals`, `run_sector_screen`) — no generic SQL tool, so every retrieval shape is
-  enumerable. `server.py` is thin FastMCP wiring; the logic is in `tools.py` as plain async functions
-  taking a connection, so tests exercise them without a subprocess.
+- `mcp_server/entrypoint.py` exposes five typed tools (`list_companies`, `lookup_companies`,
+  `get_financials`, `get_hiring_signals`, `run_sector_screen`) — no generic SQL tool.
+  `server.py` retains the four database registrations; the entry point attaches the registry
+  tool, whose logic lives in `registry.py` and `tools.py`.
 - `scripts/` is the offline build pipeline, unused at query time: SEC XBRL company facts +
   `yfinance` -> `derive_metrics.py` (ratios computed only when units and periods are compatible,
   recording lineage rows) -> `database_writer.py` -> `validate_db.py`. `build_db.py` writes to a

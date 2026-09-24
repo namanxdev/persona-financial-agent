@@ -31,29 +31,31 @@ ways: a Streamlit chat UI and a FastAPI `POST /query` endpoint.
 ## How a question is answered
 
 Both interfaces call the same function, `agent.core.answer_query`. The sector catalog is loaded
-first, and any company the question names is checked against it before anything else is
-retrieved: a company outside the catalog is refused straight away, with no retrieval and no
-fallback to model knowledge. Finance vocabulary (`LTL`, `EBITDA`, "Free Cash Flow") is not a
-company name and passes through.
+first. Company-shaped mentions that do not match it are checked through the SEC-listed-company
+registry MCP tool before financial retrieval. A confirmed listed company outside the catalog is
+refused. A term with no registry hit, such as `OTR`, passes through as part of the question.
 
 ```mermaid
 flowchart TD
     Q["Question + persona + sector<br/>Streamlit UI or POST /query"] --> MCP{"MCP server<br/>subprocess started?"}
     MCP -->|"no"| ERR["Error: 502 in the API, st.error in the UI"]
     MCP -->|"yes"| LC["list_companies(sector)<br/>load the sector catalog"]
-    LC --> RES["resolve_mentions<br/>tickers, aliases, proper nouns;<br/>finance vocabulary is skipped"]
-    RES --> NAMED{"Company name<br/>in the query?"}
+    LC --> RES["resolve_mentions<br/>catalog matches and candidates"]
+    RES --> CAND{"Unmatched candidate?"}
+    CAND -->|"yes"| LOOK["lookup_companies(names, tickers)<br/>SEC registry over MCP"]
+    CAND -->|"no"| NAMED{"Covered company named?"}
+    LOOK --> REAL{"Real listed company<br/>outside this catalog?"}
+    REAL -->|"yes"| REF["REFUSE: out_of_scope_answer<br/>No sector data for this company"]
+    REAL -->|"no"| NAMED
     NAMED -->|"no"| SW["Sector-wide retrieval<br/>persona screens, financials, hiring"]
-    NAMED -->|"yes"| INDB{"Company in the<br/>sector catalog?"}
-    INDB -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
-    INDB -->|"no"| REF["REFUSE: out_of_scope_answer<br/>I don't have 'RIVN' in the logistics sector dataset,<br/>so I can't answer about it -- I won't guess from general knowledge.<br/>Ask about one of the covered logistics companies instead."]
+    NAMED -->|"yes"| CF["Company-focus retrieval<br/>persona metrics + question focus"]
     CF --> CLOSE["MCP session closes"]
     SW --> CLOSE
     CLOSE --> FR["choose_framing<br/>one stance word; neutral when keyless"]
     FR --> DET["compose_answer<br/>deterministic answer from evidence rows"]
     DET --> SYN{"Model key set and<br/>synthesis on?"}
     SYN -->|"no"| CONF["compute_confidence<br/>coverage + freshness"]
-    SYN -->|"yes"| VAL{"evidence_guard.validate<br/>passes the draft?"}
+    SYN -->|"yes"| VAL{"evidence_guard.validate<br/>numeric and registry checks pass?"}
     VAL -->|"yes"| MODEL["Use the model's thesis"]
     VAL -->|"no"| DNAMED{"Draft names a company<br/>the query also named?"}
     DNAMED -->|"no"| KEEP["Keep the deterministic answer"]
@@ -295,7 +297,7 @@ repo when the browser asks, and reports nothing usable if the current branch has
 has unpushed commits. Push the branch and restart the local server, or skip the button and create
 the app from share.streamlit.io, which only looks at GitHub.
 
-**The thing to watch.** Every request spawns `python -m mcp_server.server` as a real subprocess.
+**The thing to watch.** Every request spawns `python -m mcp_server.entrypoint` as a real subprocess.
 That is the property this project exists to demonstrate, not an implementation detail, so it
 cannot be optimised away for a host that dislikes it. A normal container platform runs it fine;
 a sandbox that forbids process spawning will fail at the first tool call, and the app log will
@@ -333,6 +335,18 @@ uv run python scripts/build_db.py
 
 SEC's Company Facts API requires a real contact identity in the `User-Agent` header; the build
 refuses to run against live SEC with a placeholder address.
+
+The separate committed `data/listed_companies.json` snapshot comes from SEC's
+`company_tickers_exchange.json`. Refresh it with the same `SEC_USER_AGENT`:
+
+```bash
+uv run python scripts/build_registry.py
+```
+
+The builder retains NYSE, Nasdaq, and CBOE rows, requires at least 5,000 rows and all 24 catalog
+tickers, then replaces the snapshot atomically. It prints short-ticker word collisions for review.
+The snapshot date and source URL accompany every `lookup_companies` result; the contact email is
+sent only in the request header and is not stored in the snapshot.
 
 ## Schema
 
@@ -464,10 +478,14 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
   finance vocabulary (`target`, `meta`, `low`, `cost`, `best buy`, `apple`), so those are matched
   only when capitalised as proper nouns: "What about Target?" resolves to TGT, while "the target
   market" stays a sector-wide query. Every other alias matches case-insensitively but only on
-  whole-word boundaries, so "expose the cost" no longer resolves to XPO. Two residual gaps: a
-  sentence-initial ambiguous alias ("Low margins are a concern") still reads as a company
-  mention, and a company *outside* the dataset written in lowercase ("what about snowflake?")
-  is not seen at all, because nothing distinguishes it by shape from an ordinary noun.
+  whole-word boundaries, so "expose the cost" no longer resolves to XPO. Unmatched capitalised
+  candidates are checked against the SEC registry, without a runtime vocabulary list. A 2-3 letter
+  ticker is refused only in company context; this prevents `AI capex` and `IT spending` from being
+  mistaken for companies. A 4-5 letter listed ticker or a confirmed name is refused. The registry
+  is a dated snapshot and does not include private companies. Lowercase out-of-catalog names such
+  as "what about snowflake?" remain invisible to the initial extractor. A 2-3 letter ticker with
+  no company context may also pass as sector jargon. The single-word first-name rule uses SEC
+  uniqueness as a proxy for a distinctive brand; a word such as "Open" can still match Open Text.
 
   That second gap is covered downstream rather than in the resolver. If the model then writes
   about a company the catalog does not contain, and the question named it too, the answer becomes
@@ -479,9 +497,12 @@ retrievable value -- unavailable facts stay SQL `NULL`, never zero or estimated.
 
 ## MCP design
 
-The agent reaches data through exactly four fixed, typed tools --
-`list_companies`, `get_financials`, `get_hiring_signals`, `run_sector_screen` -- served by
-`mcp_server/server.py` over stdio, not a generic SQL/query tool. That boundary is deliberate:
+The agent reaches data through exactly five fixed, typed tools --
+`list_companies`, `lookup_companies`, `get_financials`, `get_hiring_signals`,
+`run_sector_screen` -- served by `mcp_server/entrypoint.py` over stdio. The entry point attaches
+the read-only registry tool to the database server without changing `mcp_server/server.py`.
+The registry is indexed in memory from the committed JSON snapshot; financial facts still come
+only from the SQLite-backed tools. The boundary is deliberate:
 
 - **Fixed tools instead of generic SQL** keep every possible retrieval shape enumerable and
   typed (the Pydantic row models in `mcp_server/models.py`), so a persona's tool calls are a legible,
@@ -582,22 +603,19 @@ is checked against the full retrieved set, and so is a pronoun hand-off ("Its ma
 because a sentence naming no company cannot be pinned to one. Numbers written as words ("roughly
 double") are not figures to the validator at all. The real fix for both is numbers by reference:
 the model writes `{evidence_id}` placeholders and the server renders the display string, so the
-model never types a figure. That is the next step, not something built here. Company names are found by the same proper-noun
-resolver a question goes through, which ignores a sentence-initial capital -- so a draft whose
-*only* mention of an uncovered company opens a sentence is missed. Closing that needs a
-dictionary of ordinary words: the version that tried refused a real question about "the margin
-and valuation picture" because the answer opened a bullet with "Valuation". A missed mention
-costs a plainer answer; a false one refuses a question the data can answer, so the gap is left
-open deliberately. Qualitative claims ("integration risk is high") are the model's own and are
+model never types a figure. That is the next step, not something built here. Draft company checks
+use the same sentence-by-sentence extractor and confirm candidates through the registry. A draft
+whose only uncovered company name appears as a sentence-initial ordinary-case word may still be
+missed by that extractor. Qualitative claims ("integration risk is high") are the model's own and are
 not checkable against a database at all -- they are labelled as risks and limitations rather than
 presented as findings.
 
 **Observed behaviour.** Every rejection seen on live `gpt-4o-mini` runs so far has been a bug in
 the validator rather than model misbehaviour, and each is now a regression test in
 `tests/test_evidence_guard.py`: `EV/EBITDA` read as a ticker called `EV/`; a persona rejected for
-discussing a company it had retrieved but not formally cited; `EV` treated as vocabulary by the
-guard but as a company by the resolver, because the two kept separate lists (now one list, in
-`agent/scope.py`); and a bullet opening with `Valuation` read as a company.
+discussing a company it had retrieved but not formally cited; and a bullet opening with `Valuation`
+read as a company. The registry-backed guard now accepts unconfirmed terms such as `OTR` and rejects
+confirmed out-of-catalog companies. A registry lookup failure discards the draft.
 
 The one genuine miss was worse and is what the catalog check exists for. Asked "what do you
 think about snowflake?" -- all lowercase -- the resolver saw no company, so no refusal fired, and
@@ -612,9 +630,8 @@ model-dependent.
 
 ## Eval results
 
-Run on 2026-09-09 against the committed database, over a real stdio MCP subprocess, with no
-`OPENAI_API_KEY` set -- the same configuration CI uses, so the deterministic composer produced
-every answer and this output is reproducible rather than model-dependent:
+Run on 2026-09-24 against the committed database and SEC registry, over a real stdio MCP subprocess.
+Provider calls were unavailable, so the deterministic composer produced every answer:
 
 ```
 $ OPENAI_API_KEY= uv run python evals/run_evals.py
@@ -630,14 +647,17 @@ refusal_unknown_ticker_style       PASS    confidence=low evidence=[] answer="I 
                                            the logistics sector dataset, so I can't answer about it"
 refusal_unknown_mixed_case_name    PASS    confidence=low evidence=[] answer="I don't have 'Snowflake'
                                            in the tech sector dataset, so I can't answer about it"
+jargon_not_refused_otr             PASS    evidence=23; OTR did not trigger a refusal
 
-8/8 cases passed
+9/9 cases passed
 ```
 
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: `uv run python -m pytest -q` -> **141 passed** (re-run 2026-09-23 after the finance-vocabulary fix; the eval table above came out identical).
+Test suite alongside it: **168 passed** on 2026-09-24 with `uv run --no-sync python -m pytest -q`;
+the local Windows run set `--basetemp` to a writable temp path because the default temp directory
+had an unrelated ACL error.
 
 The divergence cases ask one identical question per sector and run it through all three personas,
 asserting the tool sequences and the surfaced company sets both differ. The retrieval those three

@@ -51,7 +51,8 @@ def candidate(**overrides) -> Synthesis:
 def listed_lookup(names: list[str], tickers: list[str]) -> list[ListedCompany]:
     """Fixed registry replies for guard tests; no server or vocabulary dependency."""
     known_names = {"snowflake": "SNOW", "old dominion": "ODFL", "nvidia": "NVDA"}
-    known_tickers = {"ODFL", "NVDA", "RIVN", "AI", "GM", "IT", "KNX"}
+    # FCF is First Commonwealth Financial: real finance jargon that is also a listed ticker.
+    known_tickers = {"ODFL", "NVDA", "RIVN", "AI", "GM", "IT", "KNX", "FCF"}
     matches = [(name, "name", known_names[name.lower()]) for name in names if name.lower() in known_names]
     matches += [(ticker, "ticker", ticker) for ticker in tickers if ticker in known_tickers]
     return [ListedCompany(

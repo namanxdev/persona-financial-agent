@@ -609,8 +609,12 @@ because a sentence naming no company cannot be pinned to one. Numbers written as
 double") are not figures to the validator at all. The real fix for both is numbers by reference:
 the model writes `{evidence_id}` placeholders and the server renders the display string, so the
 model never types a figure. That is the next step, not something built here. Draft company checks
-use the same sentence-by-sentence extractor and confirm candidates through the registry. A draft
-whose only uncovered company name appears as a sentence-initial ordinary-case word may still be
+use the same sentence-by-sentence extractor and confirm candidates through the registry. About a
+fifth of common finance acronyms are also listed tickers (`FCF`, `AI`, `IT`, `LTM`), so a 2-3 letter
+ticker in a draft counts as a company only when used like one (`KNX's`, `about KNX`) or when it sits
+beside a figure in a sentence that names no retrieved company -- the case where it could take credit
+for a number it does not own. "FCF is strong" passes; "KNX operating margin (TTM) is 45.1%" does not.
+A draft whose only uncovered company name appears as a sentence-initial ordinary-case word may still be
 missed by that extractor. Qualitative claims ("integration risk is high") are the model's own and are
 not checkable against a database at all -- they are labelled as risks and limitations rather than
 presented as findings.
@@ -660,7 +664,7 @@ jargon_not_refused_otr             PASS    evidence=23; OTR did not trigger a re
 (The three divergence rows also print each persona's full tool sequence and company set. Those
 columns are elided above for width and reproduced in the table below.)
 
-Test suite alongside it: **182 passed** on 2026-09-24 with `uv run --no-sync python -m pytest -q`;
+Test suite alongside it: **185 passed** on 2026-09-24 with `uv run --no-sync python -m pytest -q`;
 the local Windows run set `--basetemp` to a writable temp path because the default temp directory
 had an unrelated ACL error.
 

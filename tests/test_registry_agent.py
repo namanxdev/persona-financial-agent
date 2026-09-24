@@ -72,6 +72,9 @@ def test_model_draft_uses_a_fresh_registry_session_and_records_the_call(monkeypa
     ("tech", "What will United States tariffs do to margins?", False),
     ("retail", "Is Main Street spending holding up?", False),
     ("logistics", "How is Carrier demand trending?", False),
+    # "and" gives company context only when the other side is a confirmed company.
+    ("logistics", "How are Carrier and OTR volumes trending?", False),
+    ("retail", "Are Main Street and Wall Street diverging?", False),
     ("tech", "What about United States?", False),
     ("retail", "What about Main Street?", True),
     ("logistics", "What about Carrier?", True),

@@ -80,6 +80,19 @@ def test_draft_rejects_short_unretrieved_ticker_but_allows_user_jargon() -> None
     assert validate(jargon, evidence(), catalog(), listed_lookup, question="How exposed is the sector to AI capex?") is None
 
 
+def test_short_registry_tickers_in_a_draft_count_only_when_used_like_a_company() -> None:
+    """About a fifth of common finance acronyms are also real tickers (FCF, AI, IT, LTM...).
+    A draft is rejected for one only where the risk is real: it is used like a company, or it
+    sits beside a figure in a sentence that names no retrieved company."""
+    jargon = candidate(risks=["FCF is strong.", "AI capex may weigh on FCF."])
+    assert validate(jargon, evidence(), catalog(), listed_lookup, question="Is this sector attractive?") is None
+    beside_owner = candidate(risks=["MSFT FCF discipline supports its 45.1% operating margin (TTM)."])
+    assert validate(beside_owner, evidence(), catalog(), listed_lookup, question="How are margins?") is None
+    for sentence in ("KNX operating margin (TTM) is 45.1%.", "KNX's margins look better.", "MSFT vs GM is close."):
+        reason = validate(candidate(risks=[sentence]), evidence(), catalog(), listed_lookup, question="How are margins?")
+        assert reason is not None and "outside the sector catalog" in reason, sentence
+
+
 def test_registry_guard_fails_closed_when_lookup_raises() -> None:
     def unavailable(names: list[str], tickers: list[str]) -> list:
         raise RuntimeError("registry unavailable")

@@ -158,9 +158,11 @@ def outside_catalog(candidates: list[Candidate], hits: list[ListedCompany]) -> l
         short_context = candidate.direct_context or candidate.joined_catalog or bool(
             confirmed_texts.intersection(candidate.joined_with)
         )
+        # A partial name ("Carrier", "Main Street") needs the same context a short ticker does;
+        # "and" only counts when the other side is itself a confirmed company.
         named = candidate.kind == "name" and (
             any(hit.name_match == "exact" for hit in matches)
-            or (candidate.company_context and len({hit.ticker for hit in matches}) == 1)
+            or (short_context and len({hit.ticker for hit in matches}) == 1)
         )
         if named or (candidate.kind == "ticker" and (len(candidate.text) >= 4 or short_context)):
             if candidate.text not in outside:

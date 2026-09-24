@@ -107,9 +107,11 @@ QueryRequest -> AgentMcpClient (stdio subprocess: python -m mcp_server.entrypoin
 - `agent/scope.py` extracts candidates without a vocabulary list. `lookup_companies` confirms them
   against a dated SEC snapshot. Two- and three-letter ticker hits need company usage context;
   longer ticker hits and exact-name hits are companies. Partial names need company context and one
-  unique registry match. Drafts use a stricter ticker rule in `agent/company_guard.py`: a registry
-  ticker absent from the evidence is rejected unless the user's question already contained that
-  token. All draft candidates are looked up together; failed lookups discard the draft.
+  unique registry match; "and" counts as context only when the other side is a confirmed company.
+  Drafts (`agent/company_guard.py`): an unretrieved 4-5 letter registry ticker is rejected; a 2-3
+  letter one only in company context or beside a figure in a sentence naming no retrieved company
+  (about a fifth of common acronyms -- FCF, AI, IT, LTM -- are real tickers). A token the question
+  used is exempt. All draft candidates are looked up together; failed lookups discard the draft.
 - A lowercase mention of a company outside the dataset ("what about snowflake?") is invisible to
   `scope.py` by construction. It is caught after retrieval instead: if the model's draft names a
   company the catalog lacks *and* the question named it too, `core._query_named_out_of_scope`
